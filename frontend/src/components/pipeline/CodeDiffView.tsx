@@ -20,6 +20,36 @@ export default function CodeDiffView({ changes }: Props) {
     );
   }
 
+  // Parse diff lines to show added/removed context
+  const parseDiffLines = (diff?: string) => {
+    if (!diff) return null;
+    return diff.split('\n').map((line, i) => {
+      let className = 'text-gray-300';
+      let prefix = '';
+      
+      if (line.startsWith('+++') || line.startsWith('---')) {
+        className = 'text-am-muted font-semibold';
+        prefix = line.substring(0, 4);
+      } else if (line.startsWith('+')) {
+        className = 'text-green-400 bg-green-900/20';
+        prefix = '+';
+      } else if (line.startsWith('-')) {
+        className = 'text-red-400 bg-red-900/20';
+        prefix = '-';
+      } else if (line.startsWith('@@')) {
+        className = 'text-am-accent font-semibold';
+        prefix = line.split('@@')[1];
+      } else {
+        prefix = ' ';
+      }
+      
+      return { line, className, prefix, key: i };
+    });
+  };
+
+  const diffLines = parseDiffLines(changes[selectedFile]?.diff);
+  const hasDiff = diffLines && diffLines.length > 0;
+
   return (
     <div className="grid grid-cols-4 gap-4">
       {/* File list */}
@@ -76,12 +106,21 @@ export default function CodeDiffView({ changes }: Props) {
         <div className="overflow-auto max-h-[500px]">
           <pre className="code-block p-4 text-xs leading-relaxed">
             <code>
-              {changes[selectedFile]?.new_content?.split('\n').map((line, i) => (
-                <div key={i} className="flex">
-                  <span className="text-am-muted/50 select-none w-10 text-right pr-4 shrink-0">{i + 1}</span>
-                  <span className="text-gray-300">{line}</span>
-                </div>
-              ))}
+              {hasDiff ? (
+                diffLines.map(({ line, className, prefix, key }) => (
+                  <div key={key} className={`flex ${className}`}>
+                    <span className="text-am-muted/50 select-none w-6 text-right pr-2 shrink-0">{prefix}</span>
+                    <span className="flex-1">{line}</span>
+                  </div>
+                ))
+              ) : (
+                changes[selectedFile]?.new_content?.split('\n').map((line, i) => (
+                  <div key={i} className="flex">
+                    <span className="text-am-muted/50 select-none w-10 text-right pr-4 shrink-0">{i + 1}</span>
+                    <span className="text-gray-300">{line}</span>
+                  </div>
+                ))
+              )}
             </code>
           </pre>
         </div>

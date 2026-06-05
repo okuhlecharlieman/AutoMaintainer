@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AgentMessage, AGENT_CONFIG } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
+import ReactMarkdown from 'react-markdown';
 
 interface Props {
   message: AgentMessage;
@@ -32,8 +33,8 @@ export default function AgentMessageCard({ message }: Props) {
             </span>
           </div>
 
-          <div className="markdown-content text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
-            {message.content}
+          <div className="prose prose-invert prose-sm max-w-none text-gray-300">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
           </div>
 
           {/* Thinking toggle */}

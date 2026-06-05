@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import get_settings
@@ -9,10 +10,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("AutoMaintainer API starting up...")
+    await init_db()
+    logger.info("Database initialized")
+    yield
+    logger.info("AutoMaintainer API shutting down...")
+
+
 app = FastAPI(
     title="AutoMaintainer API",
     description="Autonomous Open-Source Developer - AI Engineering Agent",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -24,18 +36,6 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
-
-
-@app.on_event("startup")
-async def startup():
-    logger.info("AutoMaintainer API starting up...")
-    await init_db()
-    logger.info("Database initialized")
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    logger.info("AutoMaintainer API shutting down...")
 
 
 if __name__ == "__main__":

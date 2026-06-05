@@ -15,7 +15,7 @@ export default function AgentsPage() {
     architect: {
       capabilities: ['Analyze project structure', 'Plan implementation approach', 'Prevent bad patterns', 'Map dependencies', 'Assess complexity'],
       tools: ['Dependency Graph', 'Codebase Analyzer', 'Memory System'],
-      type: 'Stub',
+      type: 'Core',
     },
     developer: {
       capabilities: ['Write production code', 'Follow repo conventions', 'Handle edge cases', 'Minimal changes principle', 'Language detection'],

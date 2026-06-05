@@ -57,31 +57,7 @@ export default function MemoryPage() {
     fetchMemory();
   }, []);
 
-  const demoMemories: MemoryData = {
-    repo_url: repoUrl,
-    memory: {
-      pattern: [
-        { id: '1', content: 'This repo uses repository pattern for database access', relevance_score: 0.9, created_at: new Date().toISOString(), metadata: {} },
-        { id: '2', content: 'Authentication uses JWT with refresh token rotation', relevance_score: 0.85, created_at: new Date().toISOString(), metadata: {} },
-        { id: '3', content: 'API responses follow { success, data, error } envelope pattern', relevance_score: 0.8, created_at: new Date().toISOString(), metadata: {} },
-      ],
-      convention: [
-        { id: '4', content: 'Use snake_case for Python files, camelCase for TypeScript', relevance_score: 0.95, created_at: new Date().toISOString(), metadata: {} },
-        { id: '5', content: 'All API routes prefixed with /api/v1/', relevance_score: 0.9, created_at: new Date().toISOString(), metadata: {} },
-        { id: '6', content: 'Prefer hooks over class components in React code', relevance_score: 0.85, created_at: new Date().toISOString(), metadata: {} },
-      ],
-      decision: [
-        { id: '7', content: 'Chose PostgreSQL over MySQL for JSON support', relevance_score: 0.8, created_at: new Date().toISOString(), metadata: {} },
-        { id: '8', content: 'Using FastAPI for async support and auto-generated docs', relevance_score: 0.75, created_at: new Date().toISOString(), metadata: {} },
-      ],
-      lesson: [
-        { id: '9', content: 'Previous fix: null check required before accessing user.session', relevance_score: 0.95, created_at: new Date().toISOString(), metadata: {} },
-        { id: '10', content: 'Migration scripts must be idempotent — caused prod incident once', relevance_score: 0.92, created_at: new Date().toISOString(), metadata: {} },
-      ],
-    },
-  };
-
-  const displayMemory = memory?.memory && Object.keys(memory.memory).length > 0 ? memory : demoMemories;
+  const hasMemory = memory?.memory && Object.keys(memory.memory).length > 0;
 
   return (
     <div className="flex min-h-screen">
@@ -112,8 +88,15 @@ export default function MemoryPage() {
           </div>
 
           {/* Memory categories */}
+          {!hasMemory && !loading && (
+            <div className="glass rounded-xl p-8 text-center mb-6">
+              <p className="text-4xl mb-3">🧠</p>
+              <p className="text-white font-medium">No memories yet</p>
+              <p className="text-am-muted text-sm mt-1">Run a pipeline to build up learnings for this repository</p>
+            </div>
+          )}
           <div className="grid gap-6 md:grid-cols-2">
-            {Object.entries(displayMemory.memory).map(([category, entries]) => {
+            {hasMemory && Object.entries(memory.memory).map(([category, entries]) => {
               const config = CATEGORY_CONFIG[category] || { icon: '📌', color: '#9ca3af', label: category };
               return (
                 <div key={category} className="bg-am-card rounded-xl border border-am-border p-5">

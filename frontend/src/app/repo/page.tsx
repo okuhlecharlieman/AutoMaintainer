@@ -61,7 +61,7 @@ function TreeItem({ node, depth = 0 }: { node: typeof DEMO_TREE[0]; depth?: numb
           </span>
         )}
       </button>
-      {expanded && children.map((child, i) => (
+      {expanded && children?.map((child, i) => (
         <TreeItem key={i} node={child as typeof DEMO_TREE[0]} depth={depth + 1} />
       ))}
     </div>

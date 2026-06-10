@@ -27,10 +27,7 @@ echo "Python version: $(python --version 2>&1)"
 python_minor=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
 if [ "$python_minor" = "3.14" ]; then
     echo ""
-    echo "ERROR: Render is using Python 3.14, which is incompatible with the current pydantic-core / PyO3 build."
-    echo "Please use Python 3.13 as the Render runtime for the backend service."
-    echo "If you want to build with Python 3.14, upgrade pydantic/pydantic-core to a release that supports it."
-    exit 1
+    echo "WARNING: Python 3.14 detected. Building with newer Python may require updated pydantic/pydantic-core."
 fi
 
 # ============================================

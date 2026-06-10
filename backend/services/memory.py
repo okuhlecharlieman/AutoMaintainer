@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 from models import MemoryEntry
-from services.llm import qwen_client
+from services.llm import llm_registry
 import json
 import logging
 
@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 class MemoryService:
     def __init__(self):
         self._store: Dict[str, List[MemoryEntry]] = {}
-        self.llm = qwen_client
+
+    @property
+    def llm(self):
+        return llm_registry.get_client_for_agent("memory")
 
     def _repo_key(self, repo_url: str) -> str:
         return repo_url.rstrip("/").lower()

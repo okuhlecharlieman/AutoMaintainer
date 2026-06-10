@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from models import AgentRole, AgentMessage, PipelineRun
-from services.llm import qwen_client
+from services.llm import llm_registry, LLMClient
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,8 +12,19 @@ class BaseAgent(ABC):
     name: str
     system_prompt: str
 
+    # Subclasses can set this to request a specific model alias
+    preferred_model: Optional[str] = None
+
     def __init__(self):
-        self.llm = qwen_client
+        self._llm: Optional[LLMClient] = None
+
+    @property
+    def llm(self) -> LLMClient:
+        """Lazy-resolved LLM client, routed through the registry for this agent's role."""
+        if self._llm is None:
+            role_name = self.role.value if hasattr(self.role, "value") else str(self.role)
+            self._llm = llm_registry.get_client_for_agent(role_name, self.preferred_model)
+        return self._llm
 
     @abstractmethod
     async def execute(self, pipeline: PipelineRun, context: Dict[str, Any]) -> Dict[str, Any]:

@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from models import PipelineRun, PipelineStatus, MemoryEntry
 from services.orchestrator import orchestration_engine
 from services.memory import memory_service
+from services.llm import llm_registry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -158,6 +159,12 @@ async def get_repo_memory(repo_url: str):
 async def add_memory(request: MemoryRequest):
     entry = memory_service.add_manual(request.repo_url, request.category, request.content)
     return entry.model_dump()
+
+
+# LLM Models
+@router.get("/models")
+async def list_models():
+    return {"models": llm_registry.list_models()}
 
 
 # Health check

@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import get_settings
 from core.database import init_db
@@ -39,6 +39,14 @@ app.add_middleware(
 @app.get("/health")
 async def root_health_check():
     """Expose a root-level health check for monitoring services that hit /health."""
+    return {"status": "healthy", "service": "automaintainer-backend"}
+
+@app.head("/health")
+async def root_health_check_head():
+    return Response(status_code=200)
+
+@app.get("/")
+async def root_status():
     return {"status": "healthy", "service": "automaintainer-backend"}
 
 app.include_router(router, prefix="/api")

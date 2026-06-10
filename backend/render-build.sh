@@ -27,7 +27,9 @@ echo "Cargo version: $(cargo --version 2>/dev/null || echo 'not available')"
 # Python Dependencies
 # ============================================
 echo "Installing Python dependencies..."
-
+# Enable PyO3 ABI3 compatibility for newer Python versions like 3.14
+# This suppresses the PyO3 version check and allows pydantic-core to build
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 # Upgrade pip first
 pip install --upgrade pip
 

@@ -1,5 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+greenlet==3.5.1
 pydantic==2.13.4
 pydantic-settings==2.14.1
 httpx==0.28.1

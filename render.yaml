@@ -1,10 +1,8 @@
 services:
   - type: web
     name: automaintainer-backend
-    env: python
+    env: docker
     branch: main
     rootDir: backend
-    buildCommand: chmod +x render-build.sh && ./render-build.sh
-    startCommand: chmod +x render-start.sh && ./render-start.sh
-    pythonVersion: 3.13
+    dockerfilePath: Dockerfile
     plan: free

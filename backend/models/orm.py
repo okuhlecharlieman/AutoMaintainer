@@ -32,7 +32,7 @@ class PipelineORM(Base):
 
 
 def pipeline_to_orm(pipeline: PipelineRun) -> PipelineORM:
-    data = pipeline.model_dump()
+    data = pipeline.db_dump()
     return PipelineORM(**data)
 
 

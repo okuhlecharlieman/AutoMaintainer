@@ -39,6 +39,7 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
         issue_title: formData.issue_title,
         issue_body: formData.issue_body,
       });
+      setShowCustom(false);
       onPipelineStarted();
     } catch (err) {
       console.error('Failed to start pipeline:', err);

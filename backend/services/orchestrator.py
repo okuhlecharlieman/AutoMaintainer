@@ -117,7 +117,7 @@ class OrchestrationEngine:
     async def _persist_pipeline(self, pipeline: PipelineRun):
         async with async_session() as session:
             existing = await session.get(PipelineORM, pipeline.id)
-            data = pipeline.model_dump()
+            data = pipeline.db_dump()
             if existing:
                 for key, value in data.items():
                     if key in {"created_at", "updated_at"}:

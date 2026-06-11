@@ -5,6 +5,28 @@ from datetime import datetime
 import uuid
 
 
+def _serialize_for_db(obj: Any) -> Any:
+    """Recursively convert Python objects to DB-compatible values.
+
+    - Enums → their string values (for String/JSON columns)
+    - datetime → ISO strings only inside dicts/lists (for JSON columns);
+      top-level datetime values are kept as Python datetime (for DateTime columns)
+    - Pydantic models → dicts via model_dump()
+    - dicts/lists → recursively processed
+    """
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _serialize_for_db(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_serialize_for_db(item) for item in obj]
+    if hasattr(obj, "model_dump") and isinstance(obj, BaseModel):
+        return _serialize_for_db(obj.model_dump())
+    return obj
+
+
 class AgentRole(str, Enum):
     ISSUE_ANALYST = "issue_analyst"
     ARCHITECT = "architect"
@@ -121,6 +143,21 @@ class PipelineRun(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     error_message: Optional[str] = None
+
+    def db_dump(self) -> dict[str, Any]:
+        """Dump model to a dict suitable for database storage.
+
+        Converts enums to string values (for String/JSON columns) and
+        datetime to ISO strings inside nested structures (for JSON columns).
+        Top-level datetime fields (created_at, updated_at) are kept as
+        Python datetime objects for SQLAlchemy DateTime columns.
+        """
+        data = self.model_dump()
+        serialized = _serialize_for_db(data)
+        # Restore datetime objects for DateTime columns
+        serialized["created_at"] = self.created_at
+        serialized["updated_at"] = self.updated_at
+        return serialized
 
 
 class PipelineEvent(BaseModel):

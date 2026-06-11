@@ -1,18 +1,22 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/common/Sidebar';
 import PipelineCard from '@/components/dashboard/PipelineCard';
 import QuickStartPanel from '@/components/dashboard/QuickStartPanel';
 import AgentStatusGrid from '@/components/dashboard/AgentStatusGrid';
 import StatsOverview from '@/components/dashboard/StatsOverview';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 import { PipelineListItem } from '@/types';
 
 export default function DashboardPage() {
   const [pipelines, setPipelines] = useState<PipelineListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { logout } = useAuth();
+  const router = useRouter();
 
   const fetchPipelines = useCallback(async () => {
     try {
@@ -20,11 +24,17 @@ export default function DashboardPage() {
       setPipelines(data.pipelines);
       setError(null);
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('Session expired')) {
+        logout();
+        router.replace('/login');
+        return;
+      }
       setError('Failed to load pipelines. Is the backend running?');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [logout, router]);
 
   useEffect(() => {
     fetchPipelines();

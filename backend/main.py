@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routes import router
-from core.auth import public_endpoint
+from api.routes import router, LoginRequest
+from core.auth import public_endpoint, create_access_token
 from core.config import get_settings
 from core.database import init_db, async_session
 from services.memory import memory_service
@@ -88,6 +88,28 @@ async def root_health_check_head():
 @app.get("/", dependencies=[Depends(public_endpoint)])
 async def root_status():
     return {"status": "healthy", "service": "automaintainer-backend"}
+
+
+# ── Login endpoint (public — no auth, registered on app to bypass router-level require_api_key) ──
+
+import secrets as _secrets
+
+@app.post("/api/auth/login", dependencies=[Depends(public_endpoint)])
+async def login(request: LoginRequest):
+    """Authenticate and receive a JWT access token."""
+    if not settings.auth_enabled:
+        token = create_access_token("anonymous")
+        return {"access_token": token, "token_type": "bearer"}
+
+    if not settings.admin_password:
+        raise HTTPException(status_code=401, detail="Login disabled — no admin password configured")
+
+    if not _secrets.compare_digest(request.username, settings.admin_username) or \
+       not _secrets.compare_digest(request.password, settings.admin_password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    token = create_access_token(settings.admin_username)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 # ── API router ─────────────────────────────────────────────────────────────

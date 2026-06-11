@@ -1,14 +1,39 @@
 import { PipelineRun, PipelineListItem } from '@/types';
 
-// On Vercel: NEXT_PUBLIC_API_URL = "http://<oracle-ip>/api"
-// Locally/with nginx: defaults to "/api" (nginx proxies to backend)
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+const TOKEN_KEY = 'automaintainer_token';
+
+function getToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getToken();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
+}
 
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...authHeaders(),
+    ...(options?.headers as Record<string, string> || {}),
+  };
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers,
   });
+
+  if (res.status === 401) {
+    // Token expired or invalid — clear it so the app redirects to login
+    localStorage.removeItem(TOKEN_KEY);
+    throw new Error('Session expired. Please sign in again.');
+  }
+
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(error.detail || `API error: ${res.status}`);
@@ -17,6 +42,21 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  async login(username: string, password: string): Promise<{ access_token: string; token_type: string }> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(error.detail || `Login failed: ${res.status}`);
+    }
+    const data = await res.json();
+    localStorage.setItem(TOKEN_KEY, data.access_token);
+    return data;
+  },
+
   async startPipeline(data: {
     repo_url: string;
     issue_url: string;

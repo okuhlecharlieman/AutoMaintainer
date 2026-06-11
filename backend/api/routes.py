@@ -21,6 +21,11 @@ router = APIRouter(dependencies=[Depends(require_api_key)])
 
 # ── Request models ─────────────────────────────────────────────────────────
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=128)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
 class StartPipelineRequest(BaseModel):
     repo_url: str = Field(..., max_length=2048)
     issue_url: str = Field(..., max_length=2048)

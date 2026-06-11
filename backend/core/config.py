@@ -45,7 +45,11 @@ class Settings(BaseSettings):
 
     # ── Auth ───────────────────────────────────────────────────────────
     auth_enabled: bool = True  # Secure default: auth ON in production
-    auth_token: str = ""
+    auth_token: str = ""  # Static API key (also accepted as alternative to JWT)
+    jwt_secret: str = ""  # Secret for signing JWT tokens; auto-generated if empty
+    jwt_expiration_hours: int = Field(default=24, ge=1, le=168)  # Token lifetime (1–168 hours)
+    admin_username: str = "admin"
+    admin_password: str = ""  # Must be set when auth_enabled=True
 
     # ── Sandbox ────────────────────────────────────────────────────────
     sandbox_enabled: bool = True
@@ -68,13 +72,22 @@ class Settings(BaseSettings):
     @field_validator("auth_token")
     @classmethod
     def validate_auth_token(cls, v: str, info) -> str:
+        # Note: admin_password is validated in the model_validator below,
+        # because it's defined after auth_token and isn't available here.
         if info.data.get("auth_enabled") and not v:
+            # Will be re-checked in model_validator with full context
+            pass
+        return v
+
+    @model_validator(mode="after")
+    def validate_auth_config(self) -> "Settings":
+        if self.auth_enabled and not self.auth_token and not self.admin_password:
             warnings.warn(
-                "AUTH_ENABLED is True but AUTH_TOKEN is empty. "
-                "All requests will be rejected. Set AUTH_TOKEN or disable AUTH_ENABLED.",
+                "AUTH_ENABLED is True but both AUTH_TOKEN and ADMIN_PASSWORD are empty. "
+                "All requests will be rejected. Set AUTH_TOKEN, ADMIN_PASSWORD, or disable AUTH_ENABLED.",
                 UserWarning,
             )
-        return v
+        return self
 
     @model_validator(mode="after")
     def validate_github_token_if_needed(self) -> "Settings":

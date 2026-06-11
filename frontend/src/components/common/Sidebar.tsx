@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth';
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: '📊' },
@@ -13,6 +14,13 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { logout } = useAuth();
+
+  function handleLogout() {
+    logout();
+    router.replace('/login');
+  }
 
   return (
     <aside className="w-64 bg-am-darker border-r border-am-border flex flex-col h-screen sticky top-0">
@@ -48,7 +56,7 @@ export default function Sidebar() {
         })}
       </nav>
 
-      <div className="p-4 border-t border-am-border">
+      <div className="p-4 border-t border-am-border space-y-2">
         <div className="glass rounded-lg p-3">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-2 h-2 rounded-full bg-am-success animate-pulse" />
@@ -56,6 +64,12 @@ export default function Sidebar() {
           </div>
           <p className="text-xs text-am-muted">7 agents active</p>
         </div>
+        <button
+          onClick={handleLogout}
+          className="w-full px-4 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors"
+        >
+          Sign out
+        </button>
       </div>
     </aside>
   );

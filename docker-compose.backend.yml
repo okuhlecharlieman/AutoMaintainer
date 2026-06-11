@@ -25,7 +25,11 @@ services:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-default-secret}
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./automaintainer.db}
       - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - AUTH_TOKEN=${AUTH_TOKEN:-}
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
       - HOST=0.0.0.0
       - PORT=8000
       - CORS_ORIGINS=${CORS_ORIGINS:-*}

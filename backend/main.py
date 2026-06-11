@@ -1,10 +1,17 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Response
-from fastapi.middleware.cors import CORSMiddleware
-from core.config import get_settings
-from core.database import init_db
-from api.routes import router
+from __future__ import annotations
+
 import logging
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+
+from api.routes import router
+from core.auth import public_endpoint
+from core.config import get_settings
+from core.database import init_db, async_session
+from services.memory import memory_service
+from services.orchestrator import orchestration_engine
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,42 +23,84 @@ async def lifespan(app: FastAPI):
     logger.info("AutoMaintainer API starting up...")
     await init_db()
     logger.info("Database initialized")
+
+    async with async_session() as session:
+        await orchestration_engine.initialize(session)
+        logger.info("Loaded persisted pipelines")
+
+    await memory_service.initialize()
+    logger.info("Loaded persisted memories")
+
     yield
+
     logger.info("AutoMaintainer API shutting down...")
+    await orchestration_engine.shutdown()
+    logger.info("All pipelines stopped")
 
 
 app = FastAPI(
     title="AutoMaintainer API",
-    description="Autonomous Open-Source Developer - AI Engineering Agent",
+    description="Autonomous Open-Source Developer — AI Engineering Agent",
     version="1.0.0",
     lifespan=lifespan,
 )
 
+# ── Middleware (order matters: last-added runs first) ──────────────────────
+
+# Request size limit — reject oversized payloads early
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length:
+            max_bytes = settings.max_request_size_mb * 1024 * 1024
+            if int(content_length) > max_bytes:
+                return Response(
+                    content='{"detail":"Request body too large"}',
+                    status_code=413,
+                    media_type="application/json",
+                )
+    return await call_next(request)
+
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
 
-@app.get("/health")
+# ── Public health endpoints (no auth) ──────────────────────────────────────
+
+@app.get("/health", dependencies=[Depends(public_endpoint)])
 async def root_health_check():
-    """Expose a root-level health check for monitoring services that hit /health."""
     return {"status": "healthy", "service": "automaintainer-backend"}
 
-@app.head("/health")
+
+@app.head("/health", dependencies=[Depends(public_endpoint)])
 async def root_health_check_head():
     return Response(status_code=200)
 
-@app.get("/")
+
+@app.get("/", dependencies=[Depends(public_endpoint)])
 async def root_status():
     return {"status": "healthy", "service": "automaintainer-backend"}
+
+
+# ── API router ─────────────────────────────────────────────────────────────
 
 app.include_router(router, prefix="/api")
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host=settings.host, port=settings.port, reload=True)
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=False,     # NEVER use reload=True in production
+        access_log=True,
+    )

@@ -1,89 +1,136 @@
-from fastapi import APIRouter, HTTPException, Query
-from typing import Optional, List
-from pydantic import BaseModel
-from models import PipelineRun, PipelineStatus, MemoryEntry
-from services.orchestrator import orchestration_engine
-from services.memory import memory_service
-from services.llm import llm_registry
+from __future__ import annotations
+
 import logging
+from typing import List, Optional
+from urllib.parse import urlparse
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, field_validator
+
+from core.auth import public_endpoint, require_api_key
+from models import MemoryEntry, PipelineRun, PipelineStatus
+from services.llm import llm_registry
+from services.memory import memory_service
+from services.orchestrator import orchestration_engine
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
 
+# Auth-protected router (all routes except those using public_endpoint)
+router = APIRouter(dependencies=[Depends(require_api_key)])
+
+
+# ── Request models ─────────────────────────────────────────────────────────
 
 class StartPipelineRequest(BaseModel):
-    repo_url: str
-    issue_url: str
-    issue_number: int
-    issue_title: str
-    issue_body: str = ""
+    repo_url: str = Field(..., max_length=2048)
+    issue_url: str = Field(..., max_length=2048)
+    issue_number: int = Field(..., ge=1)
+    issue_title: str = Field(..., min_length=1, max_length=1024)
+    issue_body: str = Field(default="", max_length=65536)
+
+    @field_validator("repo_url", "issue_url")
+    @classmethod
+    def validate_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in ("https", "http") or not parsed.hostname:
+            raise ValueError("Must be a valid HTTP(S) URL")
+        return parsed.geturl().rstrip("/")
 
 
 class ApproveRequest(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=4096)
 
 
 class RejectRequest(BaseModel):
-    reason: str = ""
+    reason: str = Field(default="", max_length=4096)
 
 
 class MemoryRequest(BaseModel):
-    repo_url: str
-    category: str
-    content: str
+    repo_url: str = Field(..., max_length=2048)
+    category: str = Field(..., min_length=1, max_length=64)
+    content: str = Field(..., min_length=1, max_length=32768)
+
+    @field_validator("repo_url")
+    @classmethod
+    def validate_repo_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in ("https", "http") or not parsed.hostname:
+            raise ValueError("repo_url must be a valid HTTP(S) URL")
+        if parsed.hostname.lower() not in ("github.com", "www.github.com"):
+            raise ValueError("repo_url must point to github.com")
+        return parsed.geturl().rstrip("/")
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, value: str) -> str:
+        allowed = {"pattern", "convention", "decision", "lesson"}
+        if value.lower() not in allowed:
+            raise ValueError(f"category must be one of: {', '.join(sorted(allowed))}")
+        return value.lower()
 
 
 class DemoPipelineRequest(BaseModel):
-    repo_url: str = "https://github.com/example/demo-repo"
-    issue_number: int = 42
-    issue_title: str = "Login form crashes on empty password submission"
-    issue_body: str = """## Bug Description
-When a user submits the login form without entering a password, the application crashes with a 500 error instead of showing a validation message.
-
-## Steps to Reproduce
-1. Navigate to /login
-2. Enter a valid email
-3. Leave password field empty
-4. Click "Sign In"
-
-## Expected Behavior
-Show "Password is required" validation message
-
-## Actual Behavior
-Application crashes with 500 Internal Server Error
-
-## Environment
-- Browser: Chrome 120
-- OS: macOS 14.2"""
-
-
-@router.post("/pipelines/start")
-async def start_pipeline(request: StartPipelineRequest):
-    pipeline = await orchestration_engine.start_pipeline(
-        repo_url=request.repo_url,
-        issue_url=request.issue_url,
-        issue_number=request.issue_number,
-        issue_title=request.issue_title,
-        issue_body=request.issue_body,
+    repo_url: str = Field(default="https://github.com/example/demo-repo", max_length=2048)
+    issue_number: int = Field(default=42, ge=1)
+    issue_title: str = Field(default="Login form crashes on empty password submission", min_length=1, max_length=1024)
+    issue_body: str = Field(
+        default=(
+            "## Bug Description\n"
+            "When a user submits the login form without entering a password, "
+            "the application crashes with a 500 error instead of showing a validation message.\n\n"
+            "## Steps to Reproduce\n"
+            "1. Navigate to /login\n2. Enter a valid email\n"
+            "3. Leave password field empty\n4. Click 'Sign In'\n\n"
+            "## Expected Behavior\nShow 'Password is required' validation message\n\n"
+            "## Actual Behavior\nApplication crashes with 500 Internal Server Error\n\n"
+            "## Environment\n- Browser: Chrome 120\n- OS: macOS 14.2"
+        ),
+        max_length=65536,
     )
+
+
+# ── Pipeline endpoints ─────────────────────────────────────────────────────
+
+@router.post("/pipelines/start", status_code=201)
+async def start_pipeline(request: StartPipelineRequest):
+    """Start a new pipeline for an issue."""
+    try:
+        pipeline = await orchestration_engine.start_pipeline(
+            repo_url=request.repo_url,
+            issue_url=request.issue_url,
+            issue_number=request.issue_number,
+            issue_title=request.issue_title,
+            issue_body=request.issue_body,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"pipeline_id": pipeline.id, "status": pipeline.status.value}
 
 
-@router.post("/pipelines/demo")
+@router.post("/pipelines/demo", status_code=201)
 async def start_demo_pipeline(request: DemoPipelineRequest):
-    pipeline = await orchestration_engine.start_pipeline(
-        repo_url=request.repo_url,
-        issue_url=f"{request.repo_url}/issues/{request.issue_number}",
-        issue_number=request.issue_number,
-        issue_title=request.issue_title,
-        issue_body=request.issue_body,
-    )
+    """Start a demo pipeline (no GitHub token required)."""
+    try:
+        pipeline = await orchestration_engine.start_pipeline(
+            repo_url=request.repo_url,
+            issue_url=f"{request.repo_url}/issues/{request.issue_number}",
+            issue_number=request.issue_number,
+            issue_title=request.issue_title,
+            issue_body=request.issue_body,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return {"pipeline_id": pipeline.id, "status": pipeline.status.value}
 
 
 @router.get("/pipelines")
-async def list_pipelines():
-    pipelines = orchestration_engine.list_pipelines()
+async def list_pipelines(
+    status: Optional[str] = Query(default=None, pattern="^(pending|analyzing|planning|developing|testing|security_scan|reviewing|documenting|awaiting_approval|approved|rejected|merged|failed)$"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    """List pipelines with optional status filter and pagination."""
+    pipelines = orchestration_engine.list_pipelines(status=status, limit=limit, offset=offset)
     return {
         "pipelines": [
             {
@@ -107,6 +154,7 @@ async def list_pipelines():
 
 @router.get("/pipelines/{pipeline_id}")
 async def get_pipeline(pipeline_id: str):
+    """Get a single pipeline by ID."""
     pipeline = orchestration_engine.get_pipeline(pipeline_id)
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
@@ -114,40 +162,44 @@ async def get_pipeline(pipeline_id: str):
 
 
 @router.post("/pipelines/{pipeline_id}/approve")
-async def approve_pipeline(pipeline_id: str, request: ApproveRequest = None):
+async def approve_pipeline(pipeline_id: str, request: ApproveRequest | None = None):
+    """Approve a pipeline awaiting human review."""
     try:
         pipeline = await orchestration_engine.approve_pipeline(pipeline_id)
-        return {"status": pipeline.status.value, "pr_url": pipeline.pr_url}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {"status": pipeline.status.value, "pr_url": pipeline.pr_url}
 
 
 @router.post("/pipelines/{pipeline_id}/reject")
-async def reject_pipeline(pipeline_id: str, request: RejectRequest = None):
+async def reject_pipeline(pipeline_id: str, request: RejectRequest | None = None):
+    """Reject a pipeline awaiting human review."""
     try:
-        pipeline = await orchestration_engine.reject_pipeline(pipeline_id, request.reason if request else "")
-        return {"status": pipeline.status.value}
+        reason = request.reason if request else ""
+        pipeline = await orchestration_engine.reject_pipeline(pipeline_id, reason)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {"status": pipeline.status.value}
 
 
 @router.get("/pipelines/{pipeline_id}/messages")
 async def get_pipeline_messages(pipeline_id: str):
+    """Get agent messages for a pipeline."""
     pipeline = orchestration_engine.get_pipeline(pipeline_id)
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
-    return {
-        "messages": [m.model_dump() for m in pipeline.agent_messages]
-    }
+    return {"messages": [m.model_dump() for m in pipeline.agent_messages]}
 
 
-# Memory endpoints
+# ── Memory endpoints ────────────────────────────────────────────────────────
+
 @router.get("/memory/{repo_url:path}")
 async def get_repo_memory(repo_url: str):
-    repo_url = f"https://github.com/{repo_url}" if not repo_url.startswith("http") else repo_url
-    memory = memory_service.get_repo_memory(repo_url)
+    """Get learned memory for a repository."""
+    resolved = f"https://github.com/{repo_url}" if not repo_url.startswith("http") else repo_url
+    memory = memory_service.get_repo_memory(resolved)
     return {
-        "repo_url": repo_url,
+        "repo_url": resolved,
         "memory": {
             category: [e.model_dump() for e in entries]
             for category, entries in memory.items()
@@ -155,19 +207,24 @@ async def get_repo_memory(repo_url: str):
     }
 
 
-@router.post("/memory")
+@router.post("/memory", status_code=201)
 async def add_memory(request: MemoryRequest):
-    entry = memory_service.add_manual(request.repo_url, request.category, request.content)
+    """Manually add a memory entry for a repository."""
+    entry = await memory_service.add_manual(request.repo_url, request.category, request.content)
     return entry.model_dump()
 
 
-# LLM Models
+# ── LLM Models ──────────────────────────────────────────────────────────────
+
 @router.get("/models")
 async def list_models():
+    """List configured LLM models."""
     return {"models": llm_registry.list_models()}
 
 
-# Health check
-@router.get("/health")
+# ── Health check (public) ───────────────────────────────────────────────────
+
+@router.get("/health", dependencies=[Depends(public_endpoint)])
 async def health_check():
+    """Service health check (no auth required)."""
     return {"status": "healthy", "service": "automaintainer-backend"}

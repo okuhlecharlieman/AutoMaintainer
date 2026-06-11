@@ -18,16 +18,24 @@ services:
     environment:
       - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
       - QWEN_MODEL=${QWEN_MODEL:-qwen-plus}
+      - LLM_MODELS=${LLM_MODELS:-}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-default}
+      - AGENT_MODELS=${AGENT_MODELS:-}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-default-secret}
       - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:///./automaintainer.db}
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - AUTH_TOKEN=${AUTH_TOKEN:-}
       - HOST=0.0.0.0
       - PORT=8000
-      - CORS_ORIGINS=*
+      - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - SANDBOX_ENABLED=${SANDBOX_ENABLED:-true}
       - SANDBOX_TIMEOUT=${SANDBOX_TIMEOUT:-30}
+      - MAX_CONCURRENT_PIPELINES=${MAX_CONCURRENT_PIPELINES:-3}
+      - PIPELINE_TIMEOUT_SECONDS=${PIPELINE_TIMEOUT_SECONDS:-600}
+      - MAX_REQUEST_SIZE_MB=${MAX_REQUEST_SIZE_MB:-10}
     volumes:
-      - backend-data:/app
+      - backend-data:/app/data
     restart: unless-stopped
 
 volumes:

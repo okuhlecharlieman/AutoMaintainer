@@ -18,6 +18,7 @@ frontend/next-env.d.ts
 __pycache__/
 *.py[cod]
 *$py.class
+*.db
 
 # Build outputs
 dist/

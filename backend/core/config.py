@@ -1,51 +1,90 @@
-from pydantic_settings import BaseSettings
-from pydantic import BaseModel
-from typing import Optional, Dict
-from functools import lru_cache
+from __future__ import annotations
+
 import json
+import logging
+import warnings
+from functools import lru_cache
+from typing import Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class ModelConfig(BaseModel):
-    api_key: str
+    api_key: str = Field(..., min_length=1)
     base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     model: str = "qwen-plus"
-    max_tokens: int = 4096
-    temperature: float = 0.7
+    max_tokens: int = Field(default=4096, ge=1, le=128_000)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
 
 class Settings(BaseSettings):
+    # ── LLM Configuration ──────────────────────────────────────────────
     # Legacy single-model config (used as fallback when LLM_MODELS is not set)
     dashscope_api_key: str = ""
     qwen_model: str = "qwen-plus"
 
     # Multi-model config: JSON string mapping alias -> ModelConfig
-    # Example: {"qwen-plus":{"api_key":"sk-..","model":"qwen-plus"},
-    #           "gpt4o":{"api_key":"sk-..","base_url":"https://api.openai.com/v1","model":"gpt-4o"}}
     llm_models: str = ""
 
-    # Which model alias to use by default (must exist in llm_models or fallback to legacy)
+    # Which model alias to use by default
     default_model: str = "default"
 
     # Per-agent model overrides: JSON string mapping agent role -> model alias
-    # Example: {"developer":"qwen-max","reviewer":"gpt4o"}
     agent_models: str = ""
 
+    # ── GitHub ─────────────────────────────────────────────────────────
     github_token: str = ""
     github_webhook_secret: str = ""
 
+    # ── Infrastructure ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "sqlite+aiosqlite:///./automaintainer.db"
 
-    sandbox_enabled: bool = True
-    sandbox_timeout: int = 30
+    # ── Auth ───────────────────────────────────────────────────────────
+    auth_enabled: bool = True  # Secure default: auth ON in production
+    auth_token: str = ""
 
+    # ── Sandbox ────────────────────────────────────────────────────────
+    sandbox_enabled: bool = True
+    sandbox_timeout: int = Field(default=30, ge=5, le=300)
+
+    # ── Server ─────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = Field(default=8000, ge=1, le=65535)
     cors_origins: str = "http://localhost:3000"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    # ── Pipeline limits ────────────────────────────────────────────────
+    max_concurrent_pipelines: int = Field(default=3, ge=1, le=10)
+    pipeline_timeout_seconds: int = Field(default=600, ge=60, le=3600)
+
+    # ── Request limits ─────────────────────────────────────────────────
+    max_request_size_mb: int = Field(default=10, ge=1, le=100)
+
+    model_config = {"env_file": ".env", "extra": "ignore"}
+
+    @field_validator("auth_token")
+    @classmethod
+    def validate_auth_token(cls, v: str, info) -> str:
+        if info.data.get("auth_enabled") and not v:
+            warnings.warn(
+                "AUTH_ENABLED is True but AUTH_TOKEN is empty. "
+                "All requests will be rejected. Set AUTH_TOKEN or disable AUTH_ENABLED.",
+                UserWarning,
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_github_token_if_needed(self) -> "Settings":
+        # GitHub token is required for any real pipeline execution
+        if not self.github_token:
+            logger.warning(
+                "GITHUB_TOKEN is not set. Pipeline execution will fail "
+                "when attempting to interact with GitHub."
+            )
+        return self
 
     def get_model_configs(self) -> Dict[str, ModelConfig]:
         """Parse LLM_MODELS JSON into a dict of ModelConfig, with legacy fallback."""
@@ -56,9 +95,8 @@ class Settings(BaseSettings):
                 raw = json.loads(self.llm_models)
                 for alias, cfg in raw.items():
                     configs[alias] = ModelConfig(**cfg)
-            except (json.JSONDecodeError, Exception) as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to parse LLM_MODELS: {e}")
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.warning(f"Failed to parse LLM_MODELS: {e}")
 
         # If no models configured or default is missing, add legacy fallback
         if self.default_model not in configs and self.dashscope_api_key:
@@ -80,7 +118,7 @@ class Settings(BaseSettings):
             try:
                 overrides = json.loads(self.agent_models)
                 return overrides.get(agent_role, self.default_model)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError):
                 pass
         return self.default_model
 

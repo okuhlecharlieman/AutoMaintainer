@@ -19,6 +19,7 @@ export default function PipelineDetailPage() {
   const [pipeline, setPipeline] = useState<PipelineRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'timeline' | 'code' | 'tests' | 'review'>('timeline');
+  const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -39,8 +40,25 @@ export default function PipelineDetailPage() {
   }, [pipelineId]);
 
   useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = window.scrollY || window.pageYOffset;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      setIsScrolledToBottom(scrollTop + windowHeight >= documentHeight - 100);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab !== 'timeline' || !isScrolledToBottom) {
+      return;
+    }
+
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [pipeline?.agent_messages]);
+  }, [pipeline?.agent_messages, activeTab, isScrolledToBottom]);
 
   if (loading) {
     return (

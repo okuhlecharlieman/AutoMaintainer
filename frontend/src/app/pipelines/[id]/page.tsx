@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import Sidebar from '@/components/common/Sidebar';
 import StatusBadge from '@/components/common/StatusBadge';
 import AgentMessageCard from '@/components/pipeline/AgentMessageCard';
@@ -12,6 +13,7 @@ import ReviewScores from '@/components/pipeline/ReviewScores';
 import TestResultsPanel from '@/components/pipeline/TestResultsPanel';
 import { api } from '@/lib/api';
 import { PipelineRun } from '@/types';
+import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye } from 'lucide-react';
 
 export default function PipelineDetailPage() {
   const params = useParams();
@@ -66,7 +68,7 @@ export default function PipelineDetailPage() {
         <Sidebar />
         <main className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <div className="animate-spin text-4xl mb-4">⏳</div>
+            <Loader2 size={32} className="animate-spin text-am-accent mx-auto mb-4" />
             <p className="text-am-muted">Loading pipeline...</p>
           </div>
         </main>
@@ -86,17 +88,26 @@ export default function PipelineDetailPage() {
   }
 
   const tabs = [
-    { id: 'timeline' as const, label: 'Agent Timeline', icon: '📋' },
-    { id: 'code' as const, label: 'Code Changes', icon: '💻' },
-    { id: 'tests' as const, label: 'Test Results', icon: '🧪' },
-    { id: 'review' as const, label: 'Review', icon: '👁️' },
+    { id: 'timeline' as const, label: 'Agent Timeline', icon: ClipboardList },
+    { id: 'code' as const, label: 'Code Changes', icon: Code },
+    { id: 'tests' as const, label: 'Test Results', icon: FlaskConical },
+    { id: 'review' as const, label: 'Review', icon: Eye },
   ];
 
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 p-8">
-        <div className="max-w-6xl mx-auto space-y-6">
+      <main className="flex-1 p-4 md:p-8">
+        <div className="max-w-6xl mx-auto space-y-6 pt-8 md:pt-0">
+          {/* Breadcrumb */}
+          <nav className="flex items-center gap-1.5 text-sm text-am-muted">
+            <Link href="/" className="hover:text-white transition-colors">Dashboard</Link>
+            <ChevronRight size={14} />
+            <Link href="/pipelines" className="hover:text-white transition-colors">Pipelines</Link>
+            <ChevronRight size={14} />
+            <span className="text-white font-medium truncate max-w-[200px]">#{pipeline.issue_number}</span>
+          </nav>
+
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
@@ -108,8 +119,9 @@ export default function PipelineDetailPage() {
               </div>
               <p className="text-am-muted text-sm">{pipeline.repo_url}</p>
               {pipeline.pr_url && (
-                <a href={pipeline.pr_url} target="_blank" rel="noopener noreferrer" className="text-am-accent text-sm hover:underline mt-1 inline-block">
-                  🔗 View Pull Request
+                <a href={pipeline.pr_url} target="_blank" rel="noopener noreferrer" className="text-am-accent text-sm hover:text-am-accent-light mt-1 inline-flex items-center gap-1.5 transition-colors">
+                  <ExternalLink size={14} />
+                  View Pull Request
                 </a>
               )}
             </div>
@@ -131,20 +143,23 @@ export default function PipelineDetailPage() {
           {/* Tabs */}
           <div className="border-b border-am-border">
             <div className="flex gap-1">
-              {tabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-am-card text-white border border-am-border border-b-transparent'
-                      : 'text-am-muted hover:text-gray-300'
-                  }`}
-                >
-                  <span className="mr-1.5">{tab.icon}</span>
-                  {tab.label}
-                </button>
-              ))}
+              {tabs.map((tab) => {
+                const Icon = tab.icon;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all flex items-center gap-2 ${
+                      activeTab === tab.id
+                        ? 'bg-am-card text-white border border-am-border border-b-transparent'
+                        : 'text-am-muted hover:text-gray-300'
+                    }`}
+                  >
+                    <Icon size={16} />
+                    {tab.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
@@ -154,7 +169,9 @@ export default function PipelineDetailPage() {
               <div className="space-y-4">
                 {pipeline.agent_messages.length === 0 ? (
                   <div className="glass rounded-xl p-8 text-center">
-                    <p className="text-4xl mb-3">🤖</p>
+                    <div className="w-12 h-12 rounded-xl bg-am-accent/10 flex items-center justify-center mx-auto mb-3">
+                      <Loader2 size={24} className="text-am-accent animate-spin" />
+                    </div>
                     <p className="text-white font-medium">Agents are working...</p>
                     <p className="text-am-muted text-sm mt-1">Messages will appear here in real-time</p>
                   </div>

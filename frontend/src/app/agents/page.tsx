@@ -2,6 +2,19 @@
 
 import Sidebar from '@/components/common/Sidebar';
 import { AGENT_CONFIG, AgentRole } from '@/types';
+import { Search, Landmark, Code, FlaskConical, Shield, FileText, Eye, ChevronRight } from 'lucide-react';
+import { LucideIcon } from 'lucide-react';
+import Link from 'next/link';
+
+const AGENT_ICONS: Record<AgentRole, LucideIcon> = {
+  issue_analyst: Search,
+  architect: Landmark,
+  developer: Code,
+  qa_tester: FlaskConical,
+  security: Shield,
+  documentation: FileText,
+  reviewer: Eye,
+};
 
 export default function AgentsPage() {
   const agents = Object.entries(AGENT_CONFIG) as [AgentRole, typeof AGENT_CONFIG[AgentRole]][];
@@ -47,8 +60,15 @@ export default function AgentsPage() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main className="flex-1 p-8">
-        <div className="max-w-6xl mx-auto">
+      <main className="flex-1 p-4 md:p-8">
+        <div className="max-w-6xl mx-auto pt-8 md:pt-0">
+          {/* Breadcrumb */}
+          <nav className="flex items-center gap-1.5 text-sm text-am-muted mb-6">
+            <Link href="/" className="hover:text-white transition-colors">Dashboard</Link>
+            <ChevronRight size={14} />
+            <span className="text-white font-medium">Agents</span>
+          </nav>
+
           <div className="mb-8">
             <h1 className="text-3xl font-bold text-white">AI Engineering Team</h1>
             <p className="text-am-muted mt-1">7 specialized agents working as a coordinated engineering organization</p>
@@ -58,26 +78,27 @@ export default function AgentsPage() {
           <div className="bg-am-card rounded-xl border border-am-border p-6 mb-8">
             <h2 className="text-white font-semibold mb-4">Agent Pipeline Flow</h2>
             <div className="flex items-center gap-2 overflow-x-auto pb-2">
-              {agents.map(([role, config], idx) => (
-                <div key={role} className="flex items-center shrink-0">
-                  <div
-                    className="px-4 py-2 rounded-lg border text-sm font-medium flex items-center gap-2"
-                    style={{
-                      borderColor: `${config.color}40`,
-                      backgroundColor: `${config.color}10`,
-                      color: config.color,
-                    }}
-                  >
-                    <span>{config.icon}</span>
-                    {config.name}
+              {agents.map(([role, config], idx) => {
+                const Icon = AGENT_ICONS[role];
+                return (
+                  <div key={role} className="flex items-center shrink-0">
+                    <div
+                      className="px-4 py-2 rounded-lg border text-sm font-medium flex items-center gap-2"
+                      style={{
+                        borderColor: `${config.color}40`,
+                        backgroundColor: `${config.color}10`,
+                        color: config.color,
+                      }}
+                    >
+                      <Icon size={16} />
+                      {config.name}
+                    </div>
+                    {idx < agents.length - 1 && (
+                      <ChevronRight size={18} className="text-am-muted mx-1 shrink-0" />
+                    )}
                   </div>
-                  {idx < agents.length - 1 && (
-                    <svg className="w-6 h-6 text-am-muted mx-1 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -85,18 +106,19 @@ export default function AgentsPage() {
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {agents.map(([role, config]) => {
               const details = agentDetails[role];
+              const Icon = AGENT_ICONS[role];
               return (
                 <div
                   key={role}
-                  className="bg-am-card rounded-xl border border-am-border p-6 hover:border-opacity-50 transition-all"
+                  className="bg-am-card rounded-xl border border-am-border p-6 hover:border-opacity-50 transition-all group"
                   style={{ borderColor: `${config.color}30` }}
                 >
                   <div className="flex items-center gap-3 mb-4">
                     <div
-                      className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
+                      className="w-12 h-12 rounded-xl flex items-center justify-center transition-transform group-hover:scale-110"
                       style={{ backgroundColor: `${config.color}20` }}
                     >
-                      {config.icon}
+                      <Icon size={24} style={{ color: config.color }} />
                     </div>
                     <div>
                       <h3 className="text-white font-semibold">{config.name}</h3>
@@ -117,7 +139,7 @@ export default function AgentsPage() {
                     <div className="space-y-1">
                       {details.capabilities.map((cap, i) => (
                         <div key={i} className="flex items-center gap-2 text-xs text-gray-300">
-                          <span style={{ color: config.color }}>✓</span>
+                          <span style={{ color: config.color }}>&#10003;</span>
                           {cap}
                         </div>
                       ))}

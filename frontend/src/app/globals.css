@@ -111,3 +111,21 @@ body {
 .react-flow__background {
   background: #0a0e1a !important;
 }
+
+/* Focus ring for accessibility */
+*:focus-visible {
+  outline: 2px solid rgba(99, 102, 241, 0.5);
+  outline-offset: 2px;
+}
+
+/* Smooth page transitions */
+main {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Mobile padding for sidebar hamburger */
+@media (max-width: 767px) {
+  .flex.min-h-screen > main {
+    padding-top: 3.5rem;
+  }
+}

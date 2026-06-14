@@ -4,6 +4,7 @@ import Link from 'next/link';
 import StatusBadge from '@/components/common/StatusBadge';
 import { PipelineListItem } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
+import { Star, FileText, FlaskConical, Clock } from 'lucide-react';
 
 interface Props {
   pipeline: PipelineListItem;
@@ -28,19 +29,22 @@ export default function PipelineCard({ pipeline }: Props) {
         <div className="flex items-center gap-4 text-xs text-am-muted">
           {pipeline.review_score != null && (
             <span className="flex items-center gap-1">
-              <span>⭐</span>
+              <Star size={12} />
               {pipeline.review_score.toFixed(1)}/10
             </span>
           )}
           <span className="flex items-center gap-1">
-            <span>📄</span>
+            <FileText size={12} />
             {pipeline.files_changed} files
           </span>
           <span className="flex items-center gap-1">
-            <span>🧪</span>
+            <FlaskConical size={12} />
             {pipeline.tests_passed}/{pipeline.tests_total}
           </span>
-          <span className="ml-auto">{timeAgo}</span>
+          <span className="flex items-center gap-1 ml-auto">
+            <Clock size={12} />
+            {timeAgo}
+          </span>
         </div>
       </div>
     </Link>

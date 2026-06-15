@@ -1,6 +1,7 @@
 'use client';
 
 import { ReviewScore, SecurityFinding } from '@/types';
+import { Eye, MessageSquare, Lightbulb, Shield } from 'lucide-react';
 
 interface Props {
   score?: ReviewScore;
@@ -11,7 +12,9 @@ export default function ReviewScores({ score, findings }: Props) {
   if (!score) {
     return (
       <div className="glass rounded-xl p-8 text-center">
-        <p className="text-4xl mb-3">👁️</p>
+        <div className="w-12 h-12 rounded-xl bg-pink-500/10 flex items-center justify-center mx-auto mb-3">
+          <Eye size={24} className="text-pink-400" />
+        </div>
         <p className="text-white font-medium">Review pending</p>
         <p className="text-am-muted text-sm mt-1">Scores will appear after the Reviewer agent completes</p>
       </div>
@@ -27,7 +30,6 @@ export default function ReviewScores({ score, findings }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Overall Score */}
       <div className="bg-am-card rounded-xl border border-am-border p-6 flex items-center gap-8">
         <div className="text-center">
           <div className="text-5xl font-bold" style={{
@@ -44,7 +46,6 @@ export default function ReviewScores({ score, findings }: Props) {
                 {dim.value.toFixed(1)}
               </div>
               <p className="text-am-muted text-xs mt-1">{dim.label}</p>
-              {/* Bar */}
               <div className="mt-2 h-1.5 bg-am-dark rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-1000"
@@ -56,14 +57,15 @@ export default function ReviewScores({ score, findings }: Props) {
         </div>
       </div>
 
-      {/* Comments */}
       {score.comments.length > 0 && (
         <div className="bg-am-card rounded-xl border border-am-border p-5">
-          <h3 className="text-white font-medium text-sm mb-3">💬 Review Comments</h3>
+          <h3 className="text-white font-medium text-sm mb-3 flex items-center gap-2">
+            <MessageSquare size={14} className="text-am-accent" /> Review Comments
+          </h3>
           <div className="space-y-2">
             {score.comments.map((comment, i) => (
               <div key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                <span className="text-am-muted mt-0.5">•</span>
+                <span className="text-am-muted mt-0.5">&#8226;</span>
                 <span>{comment}</span>
               </div>
             ))}
@@ -71,14 +73,15 @@ export default function ReviewScores({ score, findings }: Props) {
         </div>
       )}
 
-      {/* Suggestions */}
       {score.suggestions.length > 0 && (
         <div className="bg-am-card rounded-xl border border-am-border p-5">
-          <h3 className="text-white font-medium text-sm mb-3">💡 Suggestions</h3>
+          <h3 className="text-white font-medium text-sm mb-3 flex items-center gap-2">
+            <Lightbulb size={14} className="text-amber-400" /> Suggestions
+          </h3>
           <div className="space-y-2">
             {score.suggestions.map((s, i) => (
               <div key={i} className="flex items-start gap-2 text-sm text-gray-300">
-                <span className="text-am-accent mt-0.5">→</span>
+                <span className="text-am-accent mt-0.5">&rarr;</span>
                 <span>{s}</span>
               </div>
             ))}
@@ -86,10 +89,11 @@ export default function ReviewScores({ score, findings }: Props) {
         </div>
       )}
 
-      {/* Security Findings */}
       {findings.length > 0 && (
         <div className="bg-am-card rounded-xl border border-red-500/20 p-5">
-          <h3 className="text-white font-medium text-sm mb-3">🛡️ Security Findings ({findings.length})</h3>
+          <h3 className="text-white font-medium text-sm mb-3 flex items-center gap-2">
+            <Shield size={14} className="text-red-400" /> Security Findings ({findings.length})
+          </h3>
           <div className="space-y-3">
             {findings.map((finding, i) => (
               <div key={i} className="p-3 bg-am-dark rounded-lg">
@@ -105,7 +109,9 @@ export default function ReviewScores({ score, findings }: Props) {
                   <span className="text-xs text-am-muted">{finding.category}</span>
                 </div>
                 <p className="text-sm text-gray-300">{finding.description}</p>
-                <p className="text-xs text-am-accent mt-1">💡 {finding.recommendation}</p>
+                <p className="text-xs text-am-accent mt-1 flex items-center gap-1">
+                  <Lightbulb size={10} /> {finding.recommendation}
+                </p>
               </div>
             ))}
           </div>

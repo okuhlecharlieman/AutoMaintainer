@@ -1,6 +1,7 @@
 'use client';
 
 import { TestResult } from '@/types';
+import { FlaskConical, CheckCircle, XCircle } from 'lucide-react';
 
 interface Props {
   results: TestResult[];
@@ -10,7 +11,9 @@ export default function TestResultsPanel({ results }: Props) {
   if (results.length === 0) {
     return (
       <div className="glass rounded-xl p-8 text-center">
-        <p className="text-4xl mb-3">🧪</p>
+        <div className="w-12 h-12 rounded-xl bg-amber-500/10 flex items-center justify-center mx-auto mb-3">
+          <FlaskConical size={24} className="text-amber-400" />
+        </div>
         <p className="text-white font-medium">No test results yet</p>
         <p className="text-am-muted text-sm mt-1">Tests will appear after the QA agent completes</p>
       </div>
@@ -23,10 +26,11 @@ export default function TestResultsPanel({ results }: Props) {
 
   return (
     <div className="space-y-4">
-      {/* Summary bar */}
       <div className="bg-am-card rounded-xl border border-am-border p-4 flex items-center gap-6">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">🧪</span>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+            <FlaskConical size={20} className="text-amber-400" />
+          </div>
           <div>
             <p className="text-white font-bold">{passed}/{results.length} Passed</p>
             <p className="text-am-muted text-xs">{totalDuration}ms total</p>
@@ -39,12 +43,11 @@ export default function TestResultsPanel({ results }: Props) {
           </div>
         </div>
         <div className="flex gap-3 text-sm">
-          <span className="text-am-success">✓ {passed}</span>
-          <span className="text-am-danger">✗ {failed}</span>
+          <span className="text-am-success flex items-center gap-1"><CheckCircle size={14} /> {passed}</span>
+          <span className="text-am-danger flex items-center gap-1"><XCircle size={14} /> {failed}</span>
         </div>
       </div>
 
-      {/* Test list */}
       <div className="space-y-2">
         {results.map((result, idx) => (
           <div
@@ -55,8 +58,8 @@ export default function TestResultsPanel({ results }: Props) {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className={`text-lg ${result.passed ? 'text-am-success' : 'text-am-danger'}`}>
-                  {result.passed ? '✅' : '❌'}
+                <span className={result.passed ? 'text-am-success' : 'text-am-danger'}>
+                  {result.passed ? <CheckCircle size={18} /> : <XCircle size={18} />}
                 </span>
                 <div>
                   <p className="text-white text-sm font-medium font-mono">{result.test_name}</p>

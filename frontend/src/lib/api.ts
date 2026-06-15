@@ -29,7 +29,6 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401) {
-    // Token expired or invalid — clear it so the app redirects to login
     localStorage.removeItem(TOKEN_KEY);
     throw new Error('Session expired. Please sign in again.');
   }
@@ -39,6 +38,27 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
     throw new Error(error.detail || `API error: ${res.status}`);
   }
   return res.json();
+}
+
+export interface SystemStatus {
+  backend: {
+    status: string;
+    auth_enabled: boolean;
+    max_concurrent_pipelines: number;
+    pipeline_timeout_seconds: number;
+  };
+  github: {
+    configured: boolean;
+  };
+  llm: {
+    models: string[];
+    default_model: string;
+  };
+  pipelines: {
+    total: number;
+    active: number;
+    running_tasks: number;
+  };
 }
 
 export const api = {
@@ -104,6 +124,18 @@ export const api = {
     });
   },
 
+  async deletePipeline(id: string): Promise<{ deleted: boolean }> {
+    return fetchAPI(`/pipelines/${id}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async retryPipeline(id: string): Promise<{ pipeline_id: string; status: string }> {
+    return fetchAPI(`/pipelines/${id}/retry`, {
+      method: 'POST',
+    });
+  },
+
   async getPipelineMessages(id: string): Promise<{ messages: unknown[] }> {
     return fetchAPI(`/pipelines/${id}/messages`);
   },
@@ -118,6 +150,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ repo_url: repoUrl, category, content }),
     });
+  },
+
+  async getSystemStatus(): Promise<SystemStatus> {
+    return fetchAPI('/system/status');
   },
 
   async healthCheck(): Promise<{ status: string }> {

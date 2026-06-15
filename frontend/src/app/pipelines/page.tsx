@@ -1,13 +1,13 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import Sidebar from '@/components/common/Sidebar';
 import StatusBadge from '@/components/common/StatusBadge';
 import { api } from '@/lib/api';
 import { PipelineListItem, PipelineStatus } from '@/types';
 import { formatDistanceToNow } from 'date-fns';
-import { Search, Star, FileText, FlaskConical, Clock, Filter, GitBranch } from 'lucide-react';
+import { Search, Star, FileText, FlaskConical, Clock, Filter, GitBranch, RefreshCw } from 'lucide-react';
 
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
@@ -22,13 +22,27 @@ export default function PipelinesPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const fetchPipelines = useCallback(async () => {
+    try {
+      const data = await api.listPipelines();
+      setPipelines(data.pipelines);
+      setLastRefresh(new Date());
+    } catch {
+      // silently fail for auto-refresh
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    api.listPipelines().then((data) => {
-      setPipelines(data.pipelines);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
+    fetchPipelines();
+    if (!autoRefresh) return;
+    const interval = setInterval(fetchPipelines, 10000);
+    return () => clearInterval(interval);
+  }, [fetchPipelines, autoRefresh]);
 
   const filteredPipelines = useMemo(() => {
     return pipelines.filter((p) => {
@@ -54,7 +68,21 @@ export default function PipelinesPage() {
         <div className="max-w-5xl mx-auto pt-8 md:pt-0">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <h1 className="text-3xl font-bold text-white">All Pipelines</h1>
-            <span className="text-am-muted text-sm">{filteredPipelines.length} of {pipelines.length} pipelines</span>
+            <div className="flex items-center gap-3">
+              <span className="text-am-muted text-sm">{filteredPipelines.length} of {pipelines.length} pipelines</span>
+              <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                title={autoRefresh ? 'Auto-refresh on (10s)' : 'Auto-refresh off'}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+                  autoRefresh
+                    ? 'text-am-success bg-am-success/10 border border-am-success/20'
+                    : 'text-gray-500 bg-am-dark border border-am-border hover:text-gray-300'
+                }`}
+              >
+                <RefreshCw size={12} className={autoRefresh ? 'animate-spin' : ''} style={autoRefresh ? { animationDuration: '3s' } : {}} />
+                {autoRefresh ? 'Live' : 'Paused'}
+              </button>
+            </div>
           </div>
 
           {/* Search & Filter Bar */}

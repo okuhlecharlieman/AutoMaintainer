@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { CodeChange } from '@/types';
+import { Code, Plus, Minus, Pencil } from 'lucide-react';
 
 interface Props {
   changes: CodeChange[];
@@ -13,7 +14,9 @@ export default function CodeDiffView({ changes }: Props) {
   if (changes.length === 0) {
     return (
       <div className="glass rounded-xl p-8 text-center">
-        <p className="text-4xl mb-3">📄</p>
+        <div className="w-12 h-12 rounded-xl bg-am-accent/10 flex items-center justify-center mx-auto mb-3">
+          <Code size={24} className="text-am-accent" />
+        </div>
         <p className="text-white font-medium">No code changes yet</p>
         <p className="text-am-muted text-sm mt-1">Changes will appear here when the Developer agent completes</p>
       </div>
@@ -69,12 +72,12 @@ export default function CodeDiffView({ changes }: Props) {
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                <span className={`flex items-center justify-center w-5 h-5 rounded text-[10px] font-medium ${
                   change.change_type === 'create' ? 'bg-green-900/30 text-green-400' :
                   change.change_type === 'delete' ? 'bg-red-900/30 text-red-400' :
                   'bg-yellow-900/30 text-yellow-400'
                 }`}>
-                  {change.change_type === 'create' ? '+' : change.change_type === 'delete' ? '-' : '~'}
+                  {change.change_type === 'create' ? <Plus size={10} /> : change.change_type === 'delete' ? <Minus size={10} /> : <Pencil size={10} />}
                 </span>
                 <span className="truncate font-mono">{change.file_path.split('/').pop()}</span>
               </div>

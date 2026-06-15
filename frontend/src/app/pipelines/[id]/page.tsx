@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Sidebar from '@/components/common/Sidebar';
 import StatusBadge from '@/components/common/StatusBadge';
@@ -13,7 +13,8 @@ import ReviewScores from '@/components/pipeline/ReviewScores';
 import TestResultsPanel from '@/components/pipeline/TestResultsPanel';
 import { api } from '@/lib/api';
 import { PipelineRun } from '@/types';
-import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye } from 'lucide-react';
+import { useToast } from '@/components/common/Toast';
+import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye, Trash2, RotateCcw, RefreshCw } from 'lucide-react';
 
 export default function PipelineDetailPage() {
   const params = useParams();
@@ -22,7 +23,11 @@ export default function PipelineDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'timeline' | 'code' | 'tests' | 'review'>('timeline');
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     const fetchPipeline = async () => {
@@ -123,6 +128,69 @@ export default function PipelineDetailPage() {
                   <ExternalLink size={14} />
                   View Pull Request
                 </a>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {(pipeline.status === 'failed' || pipeline.status === 'rejected') && (
+                <button
+                  onClick={async () => {
+                    setActionLoading(true);
+                    try {
+                      const result = await api.retryPipeline(pipeline.id);
+                      toast('Pipeline retry started!', 'success');
+                      router.push(`/pipelines/${result.pipeline_id}`);
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : 'Failed to retry', 'error');
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-am-accent/10 border border-am-accent/20 text-am-accent-light rounded-lg text-sm font-medium hover:bg-am-accent/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <RotateCcw size={14} /> Retry
+                </button>
+              )}
+              {['merged', 'rejected', 'failed'].includes(pipeline.status) && (
+                <>
+                  {showDeleteConfirm ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400">Delete?</span>
+                      <button
+                        onClick={async () => {
+                          setActionLoading(true);
+                          try {
+                            await api.deletePipeline(pipeline.id);
+                            toast('Pipeline deleted', 'info');
+                            router.push('/pipelines');
+                          } catch (err) {
+                            toast(err instanceof Error ? err.message : 'Failed to delete', 'error');
+                          } finally {
+                            setActionLoading(false);
+                            setShowDeleteConfirm(false);
+                          }
+                        }}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 bg-red-600/20 border border-red-500/30 text-red-400 rounded-lg text-xs font-medium hover:bg-red-600/30 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-3 py-1.5 bg-am-dark border border-am-border text-gray-400 rounded-lg text-xs hover:text-white transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setShowDeleteConfirm(true)}
+                      className="px-4 py-2 bg-am-dark border border-am-border text-gray-400 rounded-lg text-sm hover:text-red-400 hover:border-red-500/30 transition-colors flex items-center gap-2"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>

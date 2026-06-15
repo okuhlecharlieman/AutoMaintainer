@@ -15,6 +15,7 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
   const [loading, setLoading] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
+  const [confirmApprove, setConfirmApprove] = useState(false);
   const { toast } = useToast();
 
   const handleApprove = async () => {
@@ -106,21 +107,42 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
 
           {/* Actions */}
           <div className="flex gap-3 mt-5">
-            <button
-              onClick={handleApprove}
-              disabled={loading}
-              className="px-6 py-2.5 bg-am-success text-white rounded-lg font-medium text-sm hover:bg-emerald-600 transition-colors disabled:opacity-50 flex items-center gap-2"
-            >
-              {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-              Approve & Merge
-            </button>
-            <button
-              onClick={() => setShowReject(!showReject)}
-              className="px-5 py-2.5 bg-am-dark border border-red-500/30 text-red-400 rounded-lg font-medium text-sm hover:bg-red-900/20 transition-colors flex items-center gap-2"
-            >
-              <XCircle size={16} />
-              Reject
-            </button>
+            {confirmApprove ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-amber-200/70">Approve and merge this pipeline?</span>
+                <button
+                  onClick={handleApprove}
+                  disabled={loading}
+                  className="px-4 py-2 bg-am-success text-white rounded-lg font-medium text-sm hover:bg-emerald-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                  Yes, Merge
+                </button>
+                <button
+                  onClick={() => setConfirmApprove(false)}
+                  className="px-4 py-2 bg-am-dark border border-am-border text-gray-300 rounded-lg text-sm hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setConfirmApprove(true)}
+                className="px-6 py-2.5 bg-am-success text-white rounded-lg font-medium text-sm hover:bg-emerald-600 transition-colors flex items-center gap-2"
+              >
+                <CheckCircle size={16} />
+                Approve & Merge
+              </button>
+            )}
+            {!confirmApprove && (
+              <button
+                onClick={() => setShowReject(!showReject)}
+                className="px-5 py-2.5 bg-am-dark border border-red-500/30 text-red-400 rounded-lg font-medium text-sm hover:bg-red-900/20 transition-colors flex items-center gap-2"
+              >
+                <XCircle size={16} />
+                Reject
+              </button>
+            )}
           </div>
 
           {showReject && (

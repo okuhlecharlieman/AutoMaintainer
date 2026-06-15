@@ -3,6 +3,7 @@ import './globals.css';
 import { AuthProvider } from '@/lib/auth';
 import { ToastProvider } from '@/components/common/Toast';
 import AuthGuard from '@/components/common/AuthGuard';
+import CommandPalette from '@/components/common/CommandPalette';
 
 export const metadata: Metadata = {
   title: 'AutoMaintainer — Autonomous Open-Source Developer',
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <ToastProvider>
             <AuthGuard>
+              <CommandPalette />
               {children}
             </AuthGuard>
           </ToastProvider>

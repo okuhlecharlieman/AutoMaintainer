@@ -1,6 +1,8 @@
 'use client';
 
 import { PipelineRun, PipelineStatus, STATUS_CONFIG } from '@/types';
+import { getIcon } from '@/lib/icons';
+import { Check, X } from 'lucide-react';
 
 interface Props {
   pipeline: PipelineRun;
@@ -50,11 +52,11 @@ export default function PipelineTimeline({ pipeline }: Props) {
           const state = getStepState(step.status);
           const config = STATUS_CONFIG[step.status];
           const isLast = idx === PIPELINE_STEPS.length - 1;
+          const StepIcon = config ? getIcon(config.icon) : null;
 
           return (
             <div key={step.status} className="flex items-center shrink-0">
               <div className="flex flex-col items-center">
-                {/* Step circle */}
                 <div
                   className={`w-10 h-10 rounded-full flex items-center justify-center text-sm transition-all ${
                     state === 'completed'
@@ -68,9 +70,16 @@ export default function PipelineTimeline({ pipeline }: Props) {
                       : 'bg-am-dark border-2 border-am-border'
                   }`}
                 >
-                  {state === 'completed' ? '✓' : state === 'active' ? config?.icon : state === 'failed' ? '✗' : state === 'rejected' ? '✗' : (idx + 1)}
+                  {state === 'completed' ? (
+                    <Check size={16} className="text-am-success" />
+                  ) : state === 'active' && StepIcon ? (
+                    <StepIcon size={16} style={{ color: config?.color }} />
+                  ) : state === 'failed' || state === 'rejected' ? (
+                    <X size={16} className="text-am-danger" />
+                  ) : (
+                    <span className="text-am-muted text-xs">{idx + 1}</span>
+                  )}
                 </div>
-                {/* Label */}
                 <span className={`text-[10px] mt-1.5 font-medium text-center ${
                   state === 'active' ? 'text-am-accent' : state === 'completed' ? 'text-am-success' : 'text-am-muted'
                 }`}>
@@ -78,7 +87,6 @@ export default function PipelineTimeline({ pipeline }: Props) {
                 </span>
               </div>
 
-              {/* Connector line */}
               {!isLast && (
                 <div
                   className={`w-8 h-0.5 mx-1 mt-[-16px] ${

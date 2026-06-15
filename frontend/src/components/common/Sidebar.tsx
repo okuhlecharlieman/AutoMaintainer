@@ -16,6 +16,8 @@ import {
   Menu,
   X,
   Zap,
+  Settings,
+  Search,
 } from 'lucide-react';
 
 const navItems = [
@@ -24,6 +26,7 @@ const navItems = [
   { href: '/agents', label: 'Agents', icon: Bot },
   { href: '/repo', label: 'Repo Map', icon: Map },
   { href: '/memory', label: 'Memory', icon: Brain },
+  { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
 export default function Sidebar() {
@@ -92,16 +95,26 @@ export default function Sidebar() {
 
       <div className={`p-3 border-t border-am-border space-y-2 ${collapsed ? 'px-2' : 'p-4'}`}>
         {!collapsed && (
-          <div className="glass rounded-lg p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-am-success animate-pulse" />
-              <span className="text-xs font-medium text-am-success">System Online</span>
+          <>
+            <button
+              onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true }))}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-am-dark border border-am-border text-gray-400 text-xs hover:border-am-accent/30 hover:text-gray-300 transition-colors"
+            >
+              <Search size={12} />
+              <span className="flex-1 text-left">Search...</span>
+              <kbd className="text-[10px] px-1.5 py-0.5 bg-am-card border border-am-border rounded font-mono">Ctrl+K</kbd>
+            </button>
+            <div className="glass rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-2 h-2 rounded-full bg-am-success animate-pulse" />
+                <span className="text-xs font-medium text-am-success">System Online</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-am-muted">
+                <Zap size={12} />
+                <span>7 agents ready</span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5 text-xs text-am-muted">
-              <Zap size={12} />
-              <span>7 agents ready</span>
-            </div>
-          </div>
+          </>
         )}
         {collapsed && (
           <div className="flex justify-center py-1" title="System Online">

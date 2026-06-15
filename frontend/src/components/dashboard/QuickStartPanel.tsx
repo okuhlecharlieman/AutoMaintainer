@@ -3,22 +3,47 @@
 import { useState } from 'react';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/common/Toast';
-import { Rocket, Settings, Loader2, X, ExternalLink } from 'lucide-react';
+import { Rocket, Settings, Loader2, X, ExternalLink, Link as LinkIcon, CheckCircle } from 'lucide-react';
 
 interface Props {
   onPipelineStarted: () => void;
+}
+
+function parseGitHubIssueUrl(url: string): { repo_url: string; issue_number: number } | null {
+  const match = url.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)/);
+  if (match) {
+    return { repo_url: `https://github.com/${match[1]}`, issue_number: parseInt(match[2], 10) };
+  }
+  return null;
 }
 
 export default function QuickStartPanel({ onPipelineStarted }: Props) {
   const [loading, setLoading] = useState(false);
   const [showCustom, setShowCustom] = useState(false);
   const { toast } = useToast();
+  const [issueUrlInput, setIssueUrlInput] = useState('');
+  const [parsedUrl, setParsedUrl] = useState<{ repo_url: string; issue_number: number } | null>(null);
   const [formData, setFormData] = useState({
     repo_url: '',
     issue_number: 1,
     issue_title: '',
     issue_body: '',
   });
+
+  const handleIssueUrlChange = (value: string) => {
+    setIssueUrlInput(value);
+    const parsed = parseGitHubIssueUrl(value);
+    if (parsed) {
+      setParsedUrl(parsed);
+      setFormData((prev) => ({
+        ...prev,
+        repo_url: parsed.repo_url,
+        issue_number: parsed.issue_number,
+      }));
+    } else {
+      setParsedUrl(null);
+    }
+  };
 
   const handleDemo = async () => {
     setLoading(true);
@@ -90,13 +115,44 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
                 </div>
                 <div>
                   <h3 className="text-white text-lg font-semibold">Process GitHub Issue</h3>
-                  <p className="text-am-muted text-xs mt-0.5">Start a pipeline from any GitHub issue</p>
+                  <p className="text-am-muted text-xs mt-0.5">Paste a GitHub issue URL or fill in manually</p>
                 </div>
               </div>
               <button onClick={() => setShowCustom(false)} className="text-gray-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-white/5">
                 <X size={18} />
               </button>
             </div>
+
+            {/* Quick URL paste */}
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+                <LinkIcon size={12} /> Paste Issue URL (auto-fills fields)
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="https://github.com/owner/repo/issues/42"
+                  value={issueUrlInput}
+                  onChange={(e) => handleIssueUrlChange(e.target.value)}
+                  className={`w-full px-4 py-2.5 bg-am-dark border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none transition-colors ${
+                    parsedUrl ? 'border-am-success/50 focus:border-am-success' : 'border-am-border focus:border-am-accent'
+                  }`}
+                />
+                {parsedUrl && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <CheckCircle size={16} className="text-am-success" />
+                  </div>
+                )}
+              </div>
+              {parsedUrl && (
+                <p className="text-xs text-am-success mt-1">
+                  Parsed: {parsedUrl.repo_url} &rarr; Issue #{parsedUrl.issue_number}
+                </p>
+              )}
+            </div>
+
+            <div className="h-px bg-am-border mb-4" />
+
             <div className="space-y-3">
               <div>
                 <label className="block text-xs font-medium text-gray-400 mb-1.5">Repository URL</label>
@@ -115,7 +171,7 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
                     type="number"
                     placeholder="1"
                     value={formData.issue_number}
-                    onChange={(e) => setFormData({ ...formData, issue_number: parseInt(e.target.value) })}
+                    onChange={(e) => setFormData({ ...formData, issue_number: parseInt(e.target.value) || 1 })}
                     className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent transition-colors"
                   />
                 </div>

@@ -2,8 +2,10 @@
 
 import { useState } from 'react';
 import { AgentMessage, AGENT_CONFIG } from '@/types';
+import { getIcon } from '@/lib/icons';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
+import { ChevronDown, ChevronRight, Brain } from 'lucide-react';
 
 interface Props {
   message: AgentMessage;
@@ -12,19 +14,18 @@ interface Props {
 export default function AgentMessageCard({ message }: Props) {
   const [showThinking, setShowThinking] = useState(false);
   const config = AGENT_CONFIG[message.agent_role];
+  const Icon = getIcon(config?.icon || 'Clock');
 
   return (
     <div className="bg-am-card rounded-xl border border-am-border p-5 animate-slide-in" style={{ borderLeftColor: config?.color, borderLeftWidth: '3px' }}>
       <div className="flex items-start gap-4">
-        {/* Agent Avatar */}
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0"
+          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
           style={{ backgroundColor: `${config?.color}20` }}
         >
-          {config?.icon}
+          <Icon size={20} style={{ color: config?.color }} />
         </div>
 
-        {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-white font-medium text-sm">{config?.name}</span>
@@ -37,20 +38,21 @@ export default function AgentMessageCard({ message }: Props) {
             <ReactMarkdown>{message.content}</ReactMarkdown>
           </div>
 
-          {/* Thinking toggle */}
           {message.thinking && (
             <button
               onClick={() => setShowThinking(!showThinking)}
               className="mt-3 text-xs text-am-accent hover:text-am-accent-light transition-colors flex items-center gap-1"
             >
-              <span>{showThinking ? '▼' : '▶'}</span>
+              {showThinking ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
               View reasoning
             </button>
           )}
 
           {showThinking && message.thinking && (
             <div className="mt-2 p-3 bg-am-dark rounded-lg border border-am-border">
-              <p className="text-xs text-am-muted font-medium mb-1">🧠 Reasoning Chain</p>
+              <p className="text-xs text-am-muted font-medium mb-1 flex items-center gap-1.5">
+                <Brain size={12} /> Reasoning Chain
+              </p>
               <p className="text-xs text-gray-400 leading-relaxed">{message.thinking}</p>
             </div>
           )}

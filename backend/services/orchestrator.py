@@ -142,6 +142,25 @@ class OrchestrationEngine:
     def get_pipeline(self, pipeline_id: str) -> Optional[PipelineRun]:
         return self._pipelines.get(pipeline_id)
 
+    async def delete_pipeline(self, pipeline_id: str) -> None:
+        """Delete a pipeline (only terminal states: merged, rejected, failed)."""
+        pipeline = self._pipelines.get(pipeline_id)
+        if not pipeline:
+            raise ValueError(f"Pipeline {pipeline_id} not found")
+        terminal = {PipelineStatus.MERGED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
+        if pipeline.status not in terminal:
+            raise ValueError(f"Cannot delete pipeline in '{pipeline.status.value}' state. Only completed pipelines can be deleted.")
+        # Cancel task if somehow still tracked
+        task = self._running.pop(pipeline_id, None)
+        if task:
+            task.cancel()
+        del self._pipelines[pipeline_id]
+        async with async_session() as session:
+            existing = await session.get(PipelineORM, pipeline_id)
+            if existing:
+                await session.delete(existing)
+                await session.commit()
+
     def list_pipelines(
         self,
         status: Optional[str] = None,

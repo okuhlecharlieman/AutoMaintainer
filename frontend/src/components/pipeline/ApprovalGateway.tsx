@@ -87,6 +87,16 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
             </div>
           </div>
 
+          {/* No code changes warning */}
+          {pipeline.code_changes.length === 0 && (
+            <div className="mt-3 p-3 bg-amber-900/20 border border-amber-500/20 rounded-lg flex items-center gap-2">
+              <AlertTriangle size={14} className="text-amber-400 shrink-0" />
+              <p className="text-amber-400 text-xs font-medium">
+                No code changes were generated. The Developer agent may have failed to produce changes. Approving will fail.
+              </p>
+            </div>
+          )}
+
           {/* Risk indicators */}
           {pipeline.security_findings.length > 0 && (
             <div className="mt-3 p-3 bg-red-900/20 border border-red-500/20 rounded-lg flex items-center gap-2">

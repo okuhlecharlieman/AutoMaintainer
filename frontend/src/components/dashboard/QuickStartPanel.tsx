@@ -59,14 +59,27 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
     }
   };
 
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+    if (!formData.repo_url.trim()) errors.repo_url = 'Repository URL is required';
+    else if (!/^https?:\/\/github\.com\/.+\/.+/.test(formData.repo_url.trim())) errors.repo_url = 'Must be a valid GitHub repo URL';
+    if (!formData.issue_number || formData.issue_number < 1) errors.issue_number = 'Issue number is required';
+    if (!formData.issue_title.trim()) errors.issue_title = 'Issue title is required';
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   const handleCustom = async () => {
+    if (!validateForm()) return;
     setLoading(true);
     try {
       await api.startPipeline({
-        repo_url: formData.repo_url,
-        issue_url: `${formData.repo_url}/issues/${formData.issue_number}`,
+        repo_url: formData.repo_url.trim(),
+        issue_url: `${formData.repo_url.trim()}/issues/${formData.issue_number}`,
         issue_number: formData.issue_number,
-        issue_title: formData.issue_title,
+        issue_title: formData.issue_title.trim(),
         issue_body: formData.issue_body,
       });
       toast('Pipeline started successfully!', 'success');
@@ -155,39 +168,49 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
 
             <div className="space-y-3">
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">Repository URL</label>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                  Repository URL <span className="text-red-400">*</span>
+                </label>
                 <input
                   type="text"
                   placeholder="https://github.com/owner/repo"
                   value={formData.repo_url}
-                  onChange={(e) => setFormData({ ...formData, repo_url: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent transition-colors"
+                  onChange={(e) => { setFormData({ ...formData, repo_url: e.target.value }); setValidationErrors((prev) => { const n = {...prev}; delete n.repo_url; return n; }); }}
+                  className={`w-full px-4 py-2.5 bg-am-dark border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none transition-colors ${validationErrors.repo_url ? 'border-red-500/50 focus:border-red-500' : 'border-am-border focus:border-am-accent'}`}
                 />
+                {validationErrors.repo_url && <p className="text-red-400 text-xs mt-1">{validationErrors.repo_url}</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Issue Number</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                    Issue Number <span className="text-red-400">*</span>
+                  </label>
                   <input
                     type="number"
                     placeholder="1"
+                    min={1}
                     value={formData.issue_number}
-                    onChange={(e) => setFormData({ ...formData, issue_number: parseInt(e.target.value) || 1 })}
-                    className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent transition-colors"
+                    onChange={(e) => { setFormData({ ...formData, issue_number: parseInt(e.target.value) || 1 }); setValidationErrors((prev) => { const n = {...prev}; delete n.issue_number; return n; }); }}
+                    className={`w-full px-4 py-2.5 bg-am-dark border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none transition-colors ${validationErrors.issue_number ? 'border-red-500/50 focus:border-red-500' : 'border-am-border focus:border-am-accent'}`}
                   />
+                  {validationErrors.issue_number && <p className="text-red-400 text-xs mt-1">{validationErrors.issue_number}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Issue Title</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                    Issue Title <span className="text-red-400">*</span>
+                  </label>
                   <input
                     type="text"
                     placeholder="Fix login bug"
                     value={formData.issue_title}
-                    onChange={(e) => setFormData({ ...formData, issue_title: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent transition-colors"
+                    onChange={(e) => { setFormData({ ...formData, issue_title: e.target.value }); setValidationErrors((prev) => { const n = {...prev}; delete n.issue_title; return n; }); }}
+                    className={`w-full px-4 py-2.5 bg-am-dark border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none transition-colors ${validationErrors.issue_title ? 'border-red-500/50 focus:border-red-500' : 'border-am-border focus:border-am-accent'}`}
                   />
+                  {validationErrors.issue_title && <p className="text-red-400 text-xs mt-1">{validationErrors.issue_title}</p>}
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-400 mb-1.5">Issue Description</label>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5">Issue Description <span className="text-am-muted">(optional)</span></label>
                 <textarea
                   placeholder="Describe the issue..."
                   value={formData.issue_body}
@@ -200,7 +223,7 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
             <div className="flex gap-3 mt-5">
               <button
                 onClick={handleCustom}
-                disabled={loading || !formData.repo_url}
+                disabled={loading}
                 className="flex-1 px-4 py-2.5 bg-gradient-to-r from-am-accent to-purple-600 text-white rounded-lg font-medium text-sm hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
               >
                 {loading ? <Loader2 size={16} className="animate-spin" /> : <Rocket size={16} />}

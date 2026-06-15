@@ -168,9 +168,12 @@ export default function SettingsPage() {
                 {status.llm.models.length > 0 ? (
                   <div className="space-y-2">
                     {status.llm.models.map((model) => (
-                      <div key={model} className="flex items-center justify-between p-2.5 bg-am-dark rounded-lg border border-am-border/50">
-                        <span className="text-sm text-white font-mono">{model}</span>
-                        {model === status.llm.default_model && (
+                      <div key={model.alias} className="flex items-center justify-between p-2.5 bg-am-dark rounded-lg border border-am-border/50">
+                        <div>
+                          <span className="text-sm text-white font-mono">{model.alias}</span>
+                          <span className="text-xs text-am-muted ml-2">{model.model}</span>
+                        </div>
+                        {model.is_default && (
                           <span className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-400 rounded font-medium">default</span>
                         )}
                       </div>

@@ -1,4 +1,7 @@
+'use client';
+
 import { PipelineStatus, STATUS_CONFIG } from '@/types';
+import { getIcon } from '@/lib/icons';
 
 interface StatusBadgeProps {
   status: PipelineStatus;
@@ -8,6 +11,8 @@ interface StatusBadgeProps {
 export default function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
   const config = STATUS_CONFIG[status];
   if (!config) return null;
+
+  const Icon = getIcon(config.icon);
 
   return (
     <span
@@ -20,7 +25,7 @@ export default function StatusBadge({ status, size = 'sm' }: StatusBadgeProps) {
         border: `1px solid ${config.color}30`,
       }}
     >
-      <span>{config.icon}</span>
+      <Icon size={size === 'sm' ? 12 : 14} />
       {config.label}
     </span>
   );

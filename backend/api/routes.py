@@ -187,6 +187,36 @@ async def reject_pipeline(pipeline_id: str, request: RejectRequest | None = None
     return {"status": pipeline.status.value}
 
 
+@router.delete("/pipelines/{pipeline_id}")
+async def delete_pipeline(pipeline_id: str):
+    """Delete a completed pipeline."""
+    try:
+        await orchestration_engine.delete_pipeline(pipeline_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"deleted": True}
+
+
+@router.post("/pipelines/{pipeline_id}/retry", status_code=201)
+async def retry_pipeline(pipeline_id: str):
+    """Retry a failed pipeline by creating a new one with the same parameters."""
+    pipeline = orchestration_engine.get_pipeline(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+    if pipeline.status.value not in ("failed", "rejected"):
+        raise HTTPException(status_code=400, detail="Only failed or rejected pipelines can be retried")
+    try:
+        new_pipeline = await orchestration_engine.start_pipeline(
+            repo_url=pipeline.repo_url,
+            issue_url=pipeline.issue_url,
+            issue_number=pipeline.issue_number,
+            issue_title=pipeline.issue_title,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"pipeline_id": new_pipeline.id, "status": new_pipeline.status.value}
+
+
 @router.get("/pipelines/{pipeline_id}/messages")
 async def get_pipeline_messages(pipeline_id: str):
     """Get agent messages for a pipeline."""
@@ -225,6 +255,38 @@ async def add_memory(request: MemoryRequest):
 async def list_models():
     """List configured LLM models."""
     return {"models": llm_registry.list_models()}
+
+
+# ── System status ───────────────────────────────────────────────────────────
+
+@router.get("/system/status")
+async def system_status():
+    """Get system status including backend config, LLM models, and pipeline stats."""
+    from core.config import get_settings
+    settings = get_settings()
+    pipelines = orchestration_engine.list_pipelines(limit=1000)
+    active = sum(1 for p in pipelines if p.status.value not in ("merged", "rejected", "failed"))
+
+    return {
+        "backend": {
+            "status": "online",
+            "auth_enabled": settings.auth_enabled,
+            "max_concurrent_pipelines": settings.max_concurrent_pipelines,
+            "pipeline_timeout_seconds": settings.pipeline_timeout_seconds,
+        },
+        "github": {
+            "configured": bool(settings.github_token),
+        },
+        "llm": {
+            "models": llm_registry.list_models(),
+            "default_model": settings.default_model,
+        },
+        "pipelines": {
+            "total": len(pipelines),
+            "active": active,
+            "running_tasks": len(orchestration_engine._running),
+        },
+    }
 
 
 # ── Health check (public) ───────────────────────────────────────────────────

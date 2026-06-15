@@ -2,6 +2,7 @@ from openai import AsyncOpenAI
 from typing import List, Dict, Any, Optional
 from core.config import get_settings, ModelConfig
 import json
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,8 +62,14 @@ class LLMClient:
         try:
             return json.loads(output)
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse JSON response: {output[:200]}")
-            return {"raw_response": output}
+            # Try stripping markdown code fences (```json ... ```)
+            stripped = re.sub(r'^```(?:json)?\s*\n?', '', output.strip(), flags=re.MULTILINE)
+            stripped = re.sub(r'\n?```\s*$', '', stripped.strip(), flags=re.MULTILINE)
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse JSON response: {output[:200]}")
+                return {"raw_response": output}
 
     async def stream_chat(
         self,

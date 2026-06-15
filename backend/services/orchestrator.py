@@ -312,14 +312,26 @@ class OrchestrationEngine:
                 pipeline.code_changes = code_changes
                 pipeline.agent_messages.append(dev_result["message"])
 
-                if not code_changes:
-                    logger.warning("Pipeline %s: Developer produced no code changes", pipeline.id)
-
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.DEVELOPER,
                     data={"files_changed": len(code_changes)},
                 ))
+
+                if not code_changes:
+                    logger.error("Pipeline %s: Developer produced no code changes after retries", pipeline.id)
+                    pipeline.status = PipelineStatus.FAILED
+                    pipeline.error_message = (
+                        "Developer agent failed to generate code changes. "
+                        "The LLM may not have returned valid file modifications. "
+                        "Try retrying the pipeline or providing more specific issue details."
+                    )
+                    await self._persist_pipeline(pipeline)
+                    await self._emit_event(PipelineEvent(
+                        pipeline_id=pipeline.id, event_type="pipeline_failed",
+                        data={"error": "no_code_changes", "phase": "development"},
+                    ))
+                    return
 
                 # Phase 5: Testing
                 pipeline.status = PipelineStatus.TESTING

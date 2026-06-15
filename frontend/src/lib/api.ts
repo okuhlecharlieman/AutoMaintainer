@@ -40,6 +40,13 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface LLMModelInfo {
+  alias: string;
+  model: string;
+  base_url: string;
+  is_default: boolean;
+}
+
 export interface SystemStatus {
   backend: {
     status: string;
@@ -51,7 +58,7 @@ export interface SystemStatus {
     configured: boolean;
   };
   llm: {
-    models: string[];
+    models: LLMModelInfo[];
     default_model: string;
   };
   pipelines: {

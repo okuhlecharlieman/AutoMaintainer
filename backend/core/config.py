@@ -16,7 +16,7 @@ class ModelConfig(BaseModel):
     api_key: str = Field(..., min_length=1)
     base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     model: str = "qwen-plus"
-    max_tokens: int = Field(default=4096, ge=1, le=128_000)
+    max_tokens: int = Field(default=4096, ge=1, le=262_144)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
 

@@ -89,7 +89,14 @@ You always respond with valid JSON containing the code changes."""
                 else:
                     result = await self.analyze(dev_prompt)
 
-                # Check for raw_response (JSON parse failure)
+                # Check for JSON parse failure signal from structured_chat
+                if result.get("error") == "failed_to_parse_json":
+                    raw = result.get("raw_response", "")
+                    last_error = f"LLM returned non-JSON response: {raw[:200]}"
+                    logger.warning("Developer agent attempt %d: %s", attempt + 1, last_error)
+                    continue
+
+                # Check for raw_response (legacy JSON parse failure)
                 if "raw_response" in result and "changes" not in result:
                     raw = result.get("raw_response", "")
                     last_error = f"LLM returned non-JSON response: {raw[:200]}"

@@ -7,12 +7,24 @@ const TOKEN_KEY = 'automaintainer_token';
 interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
+  username: string | null;
   login: (username: string, password: string) => Promise<void>;
   githubLogin: () => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+function decodeUsername(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    const payload = token.split('.')[1];
+    const decoded = JSON.parse(atob(payload));
+    return decoded.sub || null;
+  } catch {
+    return null;
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
@@ -58,8 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = `${apiBase}/auth/github`;
   }, []);
 
+  const username = decodeUsername(token);
+
   return (
-    <AuthContext.Provider value={{ token, isAuthenticated: !!token, login, githubLogin, logout }}>
+    <AuthContext.Provider value={{ token, isAuthenticated: !!token, username, login, githubLogin, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -18,6 +18,7 @@ import {
   Zap,
   Settings,
   Search,
+  User,
 } from 'lucide-react';
 
 const navItems = [
@@ -32,7 +33,7 @@ const navItems = [
 export default function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { logout } = useAuth();
+  const { logout, username } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -129,7 +130,8 @@ export default function Sidebar() {
           }`}
         >
           <LogOut size={16} />
-          {!collapsed && 'Sign out'}
+          {!collapsed && username && <span className="text-am-muted truncate">{username}</span>}
+          {!collapsed && !username && 'Sign out'}
         </button>
 
         {/* Collapse toggle (desktop only) */}

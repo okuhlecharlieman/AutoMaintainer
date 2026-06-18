@@ -120,5 +120,5 @@ async def github_oauth_callback(request: Request):
     jwt_token = create_access_token(github_username)
 
     # Redirect to frontend callback page
-    frontend_url = settings.cors_origins.split(",")[0].strip()
+    frontend_url = settings.frontend_url.rstrip("/")
     return RedirectResponse(url=f"{frontend_url}/auth/callback?token={jwt_token}")

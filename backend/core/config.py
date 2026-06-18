@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     github_oauth_client_secret: str = ""
     github_oauth_redirect_uri: str = ""
 
+    # ── Frontend URL (for OAuth redirect back to frontend after login) ──
+    frontend_url: str = "http://localhost:3000"
+
     # ── Infrastructure ─────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     database_url: str = "sqlite+aiosqlite:///./automaintainer.db"

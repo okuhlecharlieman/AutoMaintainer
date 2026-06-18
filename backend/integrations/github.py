@@ -101,6 +101,15 @@ class GitHubClient:
     async def create_branch(self, owner: str, repo: str, branch_name: str, from_ref: str = "main", token: Optional[str] = None) -> Dict[str, Any]:
         headers = self._headers(token)
         async with httpx.AsyncClient() as client:
+            # Check if branch already exists — reuse it instead of creating (avoids 422)
+            existing = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{branch_name}",
+                headers=headers,
+            )
+            if existing.status_code == 200:
+                return existing.json()
+
+            # Get the SHA of the base branch
             ref_response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{from_ref}",
                 headers=headers,

@@ -114,6 +114,6 @@ export const STATUS_CONFIG: Record<PipelineStatus, { label: string; color: strin
   awaiting_approval: { label: 'Awaiting Approval', color: '#f59e0b', icon: 'Pause' },
   approved: { label: 'Approved', color: '#10b981', icon: 'CheckCircle' },
   rejected: { label: 'Rejected', color: '#ef4444', icon: 'XCircle' },
-  merged: { label: 'Merged', color: '#10b981', icon: 'GitMerge' },
+  merged: { label: 'PR Created', color: '#10b981', icon: 'GitPullRequest' },
   failed: { label: 'Failed', color: '#ef4444', icon: 'AlertTriangle' },
 };

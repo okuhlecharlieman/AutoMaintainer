@@ -22,7 +22,7 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
     setLoading(true);
     try {
       await api.approvePipeline(pipeline.id);
-      toast('Pipeline approved and merged!', 'success');
+      toast('PR created successfully!', 'success');
       onAction();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -55,7 +55,7 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
         <div className="flex-1">
           <h3 className="text-white font-semibold text-lg">Human Approval Required</h3>
           <p className="text-amber-200/70 text-sm mt-1">
-            The AI team has completed their work. Review the changes before merging.
+            The AI team has completed their work. Review the changes before creating a PR.
           </p>
 
           {/* Summary */}
@@ -119,14 +119,14 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
           <div className="flex gap-3 mt-5">
             {confirmApprove ? (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-amber-200/70">Approve and merge this pipeline?</span>
+                <span className="text-sm text-amber-200/70">Create a PR with these changes?</span>
                 <button
                   onClick={handleApprove}
                   disabled={loading}
                   className="px-4 py-2 bg-am-success text-white rounded-lg font-medium text-sm hover:bg-emerald-600 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
                   {loading ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                  Yes, Merge
+                  Yes, Create PR
                 </button>
                 <button
                   onClick={() => setConfirmApprove(false)}
@@ -141,7 +141,7 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
                 className="px-6 py-2.5 bg-am-success text-white rounded-lg font-medium text-sm hover:bg-emerald-600 transition-colors flex items-center gap-2"
               >
                 <CheckCircle size={16} />
-                Approve & Merge
+                Approve & Create PR
               </button>
             )}
             {!confirmApprove && (

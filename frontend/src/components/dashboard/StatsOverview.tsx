@@ -1,7 +1,7 @@
 'use client';
 
 import { PipelineListItem } from '@/types';
-import { RefreshCw, Zap, GitMerge, Star, FileText, FlaskConical } from 'lucide-react';
+import { RefreshCw, Zap, GitPullRequest, Star, FileText, FlaskConical } from 'lucide-react';
 
 interface Props {
   pipelines: PipelineListItem[];
@@ -18,7 +18,7 @@ export default function StatsOverview({ pipelines }: Props) {
   const stats = [
     { label: 'Total Pipelines', value: total, icon: RefreshCw, color: '#6366f1' },
     { label: 'Active', value: active, icon: Zap, color: '#f59e0b' },
-    { label: 'Merged', value: merged, icon: GitMerge, color: '#10b981' },
+    { label: 'PR Created', value: merged, icon: GitPullRequest, color: '#10b981' },
     { label: 'Avg. Score', value: avgScore.toFixed(1), icon: Star, color: '#ec4899' },
     { label: 'Files Changed', value: totalFiles, icon: FileText, color: '#3b82f6' },
     { label: 'Tests Passed', value: totalTests, icon: FlaskConical, color: '#10b981' },

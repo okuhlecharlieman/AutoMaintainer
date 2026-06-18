@@ -1,6 +1,6 @@
 import {
   Search, Landmark, Code, FlaskConical, Shield, FileText, Eye,
-  Clock, Pause, CheckCircle, XCircle, GitMerge, AlertTriangle,
+  Clock, Pause, CheckCircle, XCircle, GitPullRequest, AlertTriangle,
   LucideIcon,
 } from 'lucide-react';
 
@@ -16,7 +16,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Pause,
   CheckCircle,
   XCircle,
-  GitMerge,
+  GitMerge: GitPullRequest,
+  GitPullRequest,
   AlertTriangle,
 };
 

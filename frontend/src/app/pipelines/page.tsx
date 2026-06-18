@@ -12,7 +12,7 @@ import { Search, Star, FileText, FlaskConical, Clock, Filter, GitBranch, Refresh
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Active' },
-  { value: 'merged', label: 'Merged' },
+  { value: 'merged', label: 'PR Created' },
   { value: 'failed', label: 'Failed' },
   { value: 'rejected', label: 'Rejected' },
 ];

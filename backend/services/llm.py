@@ -1,11 +1,15 @@
 from openai import AsyncOpenAI
 from typing import List, Dict, Any, Optional
 from core.config import get_settings, ModelConfig
+import asyncio
 import json
 import re
 import logging
 
 logger = logging.getLogger(__name__)
+
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_BASE_DELAY = 5
 
 
 class LLMClient:
@@ -26,22 +30,41 @@ class LLMClient:
         max_tokens: Optional[int] = None,
         response_format: Optional[Dict] = None,
     ) -> str:
-        try:
-            kwargs: Dict[str, Any] = {
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature or self.config.temperature,
-            }
-            if max_tokens is not None:
-                kwargs["max_tokens"] = max_tokens
-            if response_format:
-                kwargs["response_format"] = response_format
+        kwargs: Dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature or self.config.temperature,
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+        if response_format:
+            kwargs["response_format"] = response_format
 
-            response = await self.client.chat.completions.create(**kwargs)
-            return response.choices[0].message.content or ""
-        except Exception as e:
-            logger.error(f"LLM API error ({self.model}): {e}")
-            raise
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                response = await self.client.chat.completions.create(**kwargs)
+                return response.choices[0].message.content or ""
+            except Exception as e:
+                error_str = str(e)
+                is_rate_limit = "429" in error_str or "rate" in error_str.lower()
+                if is_rate_limit and attempt < RATE_LIMIT_RETRIES:
+                    # Extract retry-after hint if available
+                    delay = RATE_LIMIT_BASE_DELAY * (attempt + 1)
+                    if hasattr(e, 'response') and e.response is not None:
+                        try:
+                            body = e.response.json()
+                            hint = body.get("error", {}).get("metadata", {}).get("retry_after_seconds", delay)
+                            delay = max(int(hint), RATE_LIMIT_BASE_DELAY)
+                        except Exception:
+                            pass
+                    logger.warning(
+                        "Rate limited on %s (attempt %d/%d), retrying in %ds",
+                        self.model, attempt + 1, RATE_LIMIT_RETRIES, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.error(f"LLM API error ({self.model}): {e}")
+                raise
 
     async def structured_chat(
         self,

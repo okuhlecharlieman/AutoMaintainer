@@ -28,11 +28,31 @@ const STATUS_ORDER: PipelineStatus[] = [
 export default function PipelineTimeline({ pipeline }: Props) {
   const currentIndex = STATUS_ORDER.indexOf(pipeline.status);
 
+  // Determine which step the pipeline actually failed at
+  const failedAtIndex = (() => {
+    if (pipeline.status !== 'failed') return -1;
+    // Use explicit failed_at_status if available
+    if (pipeline.failed_at_status) {
+      return STATUS_ORDER.indexOf(pipeline.failed_at_status);
+    }
+    // Fallback: infer from agent_messages (last message = last completed step)
+    const agentToStep: Record<string, number> = {
+      issue_analyst: 1, architect: 2, developer: 3, qa_tester: 4,
+      security: 5, reviewer: 6, documentation: 7,
+    };
+    let lastStep = 0;
+    for (const msg of pipeline.agent_messages || []) {
+      const idx = agentToStep[msg.agent_role] ?? 0;
+      if (idx > lastStep) lastStep = idx;
+    }
+    return lastStep;
+  })();
+
   const getStepState = (stepStatus: PipelineStatus) => {
     const stepIndex = STATUS_ORDER.indexOf(stepStatus);
     if (pipeline.status === 'failed') {
-      if (stepIndex < currentIndex) return 'completed';
-      if (stepIndex === currentIndex) return 'failed';
+      if (stepIndex < failedAtIndex) return 'completed';
+      if (stepIndex === failedAtIndex) return 'failed';
       return 'pending';
     }
     if (pipeline.status === 'merged' || pipeline.status === 'approved') return 'completed';

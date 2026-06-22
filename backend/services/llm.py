@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 RATE_LIMIT_RETRIES = 2
 RATE_LIMIT_BASE_DELAY = 5
+LLM_CALL_TIMEOUT = 90  # seconds — max time for a single LLM API call
 
 
 class RateLimitExhausted(Exception):
@@ -52,8 +53,14 @@ class LLMClient:
         last_error: Optional[Exception] = None
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             try:
-                response = await self.client.chat.completions.create(**kwargs)
+                response = await asyncio.wait_for(
+                    self.client.chat.completions.create(**kwargs),
+                    timeout=LLM_CALL_TIMEOUT,
+                )
                 return response.choices[0].message.content or ""
+            except asyncio.TimeoutError:
+                logger.error("LLM call to %s timed out after %ds", self.model, LLM_CALL_TIMEOUT)
+                raise TimeoutError(f"LLM call to {self.model} timed out after {LLM_CALL_TIMEOUT}s")
             except Exception as e:
                 error_str = str(e)
                 is_rate_limit = "429" in error_str or "rate" in error_str.lower()
@@ -87,12 +94,13 @@ class LLMClient:
         user_prompt: str,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
-        retries: int = 2,
+        retries: int = 1,
     ) -> Dict[str, Any]:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        output = ""
         for attempt in range(retries + 1):
             output = await self.chat(
                 messages=messages,
@@ -105,22 +113,22 @@ class LLMClient:
                 return parsed
 
             logger.warning(
-                "Attempt %d/%d: Failed to parse JSON from %s @ %s — raw[:200]: %s",
-                attempt + 1, retries + 1, self.model, self.config.base_url, output[:200],
+                "Attempt %d/%d: Failed to parse JSON from %s — len=%d, raw[:200]: %s",
+                attempt + 1, retries + 1, self.model, len(output), output[:200],
             )
 
-            # On retry, reinforce the JSON instruction
-            messages.append({"role": "assistant", "content": output})
-            messages.append({
-                "role": "user",
-                "content": "Your previous response was not valid JSON. Return ONLY a JSON object with no markdown fences, no commentary, no extra text.",
-            })
+            if attempt < retries:
+                # Fresh retry with shorter reinforcement (don't append old response to avoid bloat)
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt + "\n\nIMPORTANT: Respond with ONLY valid JSON. No markdown fences, no extra text. Keep the response concise."},
+                ]
 
         logger.error("All %d attempts to get valid JSON failed for %s", retries + 1, self.model)
-        return {"raw_response": output, "error": "failed_to_parse_json"}
+        return {"raw_response": output[:2000], "error": "failed_to_parse_json"}
 
     def _extract_json(self, text: str) -> Optional[Dict[str, Any]]:
-        """Try to extract JSON from an LLM response, handling markdown fences and prose wrappers."""
+        """Try to extract JSON from an LLM response, handling markdown fences, prose wrappers, and truncation."""
         # Try direct parse first
         try:
             return json.loads(text)
@@ -150,6 +158,42 @@ class LLMClient:
                 return json.loads(greedy_match.group(0))
             except json.JSONDecodeError:
                 pass
+
+        # Try to repair truncated JSON by closing open braces/brackets
+        repaired = self._repair_truncated_json(text)
+        if repaired is not None:
+            return repaired
+
+        return None
+
+    def _repair_truncated_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """Attempt to repair truncated JSON by closing open structures."""
+        # Find the start of JSON
+        start = text.find('{')
+        if start == -1:
+            return None
+
+        candidate = text[start:]
+        # Try progressively closing open brackets/braces
+        for closing in ['"}]}', '"}]', '"}', '}]}', '}]', '}']:
+            try:
+                return json.loads(candidate + closing)
+            except json.JSONDecodeError:
+                continue
+
+        # More aggressive: try to find the last complete "changes" entry
+        # and close the array
+        try:
+            last_brace = candidate.rfind('}')
+            if last_brace > 0:
+                truncated = candidate[:last_brace + 1]
+                for closing in [']}', ']}]}', ']}}']:
+                    try:
+                        return json.loads(truncated + closing)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
 
         return None
 

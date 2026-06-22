@@ -55,10 +55,13 @@ You always respond with valid JSON containing the code changes."""
 
         existing_code = ""
         if file_contents:
-            existing_code = "\n\n".join([
-                f"### {path}\n```\n{content}\n```"
-                for path, content in list(file_contents.items())[:10]
-            ])
+            # Limit each file to 3000 chars to avoid bloating the prompt
+            trimmed = []
+            for path, content in list(file_contents.items())[:5]:
+                if len(content) > 3000:
+                    content = content[:3000] + "\n... (truncated)"
+                trimmed.append(f"### {path}\n```\n{content}\n```")
+            existing_code = "\n\n".join(trimmed)
         else:
             existing_code = "(No existing file contents were fetched. Generate new file contents based on the analysis and architecture plan.)"
 
@@ -86,9 +89,9 @@ You always respond with valid JSON containing the code changes."""
                         f"Based on the issue analysis, implement the changes to the affected files listed above. "
                         f"If you cannot fetch file contents, create new or modified file content based on the requirements."
                     )
-                    result = await self.analyze(retry_prompt)
+                    result = await self.analyze(retry_prompt, max_tokens=16384)
                 else:
-                    result = await self.analyze(dev_prompt)
+                    result = await self.analyze(dev_prompt, max_tokens=16384)
 
                 # Check for JSON parse failure signal from structured_chat
                 if result.get("error") == "failed_to_parse_json":
@@ -157,10 +160,11 @@ You always respond with valid JSON containing the code changes."""
 
 ## Instructions
 1. Analyze the issue and existing code carefully
-2. Implement the minimal changes needed to fix the issue
+2. Implement the MINIMAL changes needed — only modify what is necessary
 3. Follow the repository's existing code style and patterns
-4. Add appropriate error handling
-5. You MUST produce at least one code change - never return an empty changes array
+4. You MUST produce at least one code change — never return an empty changes array
+5. Keep responses CONCISE — do not generate unnecessarily large files
+6. For large files, only include the changed portions with enough context
 
 Respond with JSON (and ONLY JSON, no markdown fences):
 {{

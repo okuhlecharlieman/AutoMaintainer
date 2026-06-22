@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     max_concurrent_pipelines: int = Field(default=3, ge=1, le=10)
     pipeline_timeout_seconds: int = Field(default=600, ge=60, le=3600)
 
+    # ── Agent timeouts (seconds) ──────────────────────────────────────
+    # Per-agent timeout: JSON mapping agent role -> seconds, or single int for all
+    agent_timeout_default: int = Field(default=120, ge=30, le=600)
+    agent_timeout_developer: int = Field(default=300, ge=60, le=600)
+
     # ── Request limits ─────────────────────────────────────────────────
     max_request_size_mb: int = Field(default=10, ge=1, le=100)
 

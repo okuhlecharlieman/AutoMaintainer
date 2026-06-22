@@ -60,6 +60,7 @@ export interface SystemStatus {
   llm: {
     models: LLMModelInfo[];
     default_model: string;
+    agent_models?: Record<string, string>;
   };
   pipelines: {
     total: number;

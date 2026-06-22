@@ -321,6 +321,10 @@ async def system_status():
         "llm": {
             "models": llm_registry.list_models(),
             "default_model": settings.default_model,
+            "agent_models": {
+                role: settings.get_agent_model(role)
+                for role in ["developer", "reviewer", "architect", "issue_analyst", "qa_tester", "security", "documentation"]
+            },
         },
         "pipelines": {
             "total": len(pipelines),

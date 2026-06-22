@@ -21,12 +21,17 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
   const handleApprove = async () => {
     setLoading(true);
     try {
-      await api.approvePipeline(pipeline.id);
-      toast('PR created successfully!', 'success');
+      const result = await api.approvePipeline(pipeline.id);
+      if (result.pr_url) {
+        toast('PR created successfully! Opening...', 'success');
+        window.open(result.pr_url, '_blank');
+      } else {
+        toast('Pipeline approved!', 'success');
+      }
       onAction();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast(`Failed to approve: ${msg}`, 'error');
+      toast(`Failed to create PR: ${msg}`, 'error');
     } finally {
       setLoading(false);
     }

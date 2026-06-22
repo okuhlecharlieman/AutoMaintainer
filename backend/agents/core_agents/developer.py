@@ -11,6 +11,7 @@ MAX_RETRIES = 2
 class DeveloperAgent(BaseAgent):
     role = AgentRole.DEVELOPER
     name = "Developer"
+    preferred_model = "nemotron-ultra"
     system_prompt = """You are an expert Developer agent in a multi-agent software engineering team.
 
 Your responsibilities:

@@ -10,6 +10,7 @@ settings = get_settings()
 
 class GitHubClient:
     BASE_URL = "https://api.github.com"
+    DEFAULT_TIMEOUT = 30.0
 
     def __init__(self):
         self.headers = {
@@ -28,7 +29,7 @@ class GitHubClient:
         return self.headers
 
     async def get_issue(self, owner: str, repo: str, issue_number: int, token: Optional[str] = None) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/issues/{issue_number}",
                 headers=self._headers(token),
@@ -37,7 +38,7 @@ class GitHubClient:
             return response.json()
 
     async def get_repo_info(self, owner: str, repo: str, token: Optional[str] = None) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}",
                 headers=self._headers(token),
@@ -47,7 +48,7 @@ class GitHubClient:
 
     async def get_file_tree(self, owner: str, repo: str, token: Optional[str] = None) -> List[Dict[str, Any]]:
         headers = self._headers(token)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/main?recursive=1",
                 headers=headers,
@@ -61,7 +62,7 @@ class GitHubClient:
             return response.json().get("tree", [])
 
     async def get_file_content(self, owner: str, repo: str, path: str, ref: str = "main", token: Optional[str] = None) -> Optional[str]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
                 headers=self._headers(token),
@@ -85,7 +86,7 @@ class GitHubClient:
         base: str = "main",
         token: Optional[str] = None,
     ) -> Dict[str, Any]:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.post(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/pulls",
                 headers=self._headers(token),
@@ -101,7 +102,7 @@ class GitHubClient:
 
     async def create_branch(self, owner: str, repo: str, branch_name: str, from_ref: str = "main", token: Optional[str] = None) -> Dict[str, Any]:
         headers = self._headers(token)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             # Check if branch already exists — reuse it instead of creating (avoids 422)
             existing = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{branch_name}",
@@ -140,37 +141,81 @@ class GitHubClient:
         files: Dict[str, str],
         token: Optional[str] = None,
     ) -> Dict[str, Any]:
+        """Commit multiple files atomically using the Git Trees API (single commit)."""
         headers = self._headers(token)
-        async with httpx.AsyncClient() as client:
-            contents = []
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # 1. Get the current commit SHA for this branch
+            ref_resp = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{branch}",
+                headers=headers,
+            )
+            ref_resp.raise_for_status()
+            base_commit_sha = ref_resp.json()["object"]["sha"]
+
+            # 2. Get the tree SHA of the base commit
+            commit_resp = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/commits/{base_commit_sha}",
+                headers=headers,
+            )
+            commit_resp.raise_for_status()
+            base_tree_sha = commit_resp.json()["tree"]["sha"]
+
+            # 3. Create blobs for each file
+            tree_items = []
             for path, content in files.items():
-                existing = await client.get(
-                    f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
+                blob_resp = await client.post(
+                    f"{self.BASE_URL}/repos/{owner}/{repo}/git/blobs",
                     headers=headers,
-                    params={"ref": branch},
+                    json={"content": content, "encoding": "utf-8"},
                 )
-                file_data: Dict[str, Any] = {
+                blob_resp.raise_for_status()
+                blob_sha = blob_resp.json()["sha"]
+                tree_items.append({
                     "path": path,
-                    "content": base64.b64encode(content.encode("utf-8")).decode("utf-8"),
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob_sha,
+                })
+
+            # 4. Create a new tree with the file changes
+            tree_resp = await client.post(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees",
+                headers=headers,
+                json={"base_tree": base_tree_sha, "tree": tree_items},
+            )
+            tree_resp.raise_for_status()
+            new_tree_sha = tree_resp.json()["sha"]
+
+            # 5. Create the commit
+            new_commit_resp = await client.post(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/commits",
+                headers=headers,
+                json={
                     "message": message,
-                    "branch": branch,
-                }
-                if existing.status_code == 200:
-                    file_data["sha"] = existing.json()["sha"]
+                    "tree": new_tree_sha,
+                    "parents": [base_commit_sha],
+                },
+            )
+            new_commit_resp.raise_for_status()
+            new_commit_sha = new_commit_resp.json()["sha"]
 
-                response = await client.put(
-                    f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
-                    headers=headers,
-                    json=file_data,
-                )
-                response.raise_for_status()
-                contents.append(response.json())
+            # 6. Update the branch ref to point to the new commit
+            update_resp = await client.patch(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/refs/heads/{branch}",
+                headers=headers,
+                json={"sha": new_commit_sha},
+            )
+            update_resp.raise_for_status()
 
-            return {"commits": contents}
+            return {
+                "commit_sha": new_commit_sha,
+                "files_committed": len(files),
+                "tree_sha": new_tree_sha,
+            }
 
     async def list_user_repos(self, token: str) -> List[Dict[str, Any]]:
         """List repos the authenticated user has access to."""
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/user/repos",
                 headers=self._headers(token),

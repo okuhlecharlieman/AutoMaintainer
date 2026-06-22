@@ -7,7 +7,7 @@ import { useToast } from '@/components/common/Toast';
 import Link from 'next/link';
 import {
   ChevronRight, Settings, Server, Github, Cpu, BarChart3,
-  CheckCircle, XCircle, Loader2, RefreshCw, Shield, Clock,
+  CheckCircle, XCircle, Loader2, RefreshCw, Shield, Clock, Users,
 } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -185,6 +185,29 @@ export default function SettingsPage() {
                   </p>
                 )}
               </div>
+
+              {/* Agent Model Assignments */}
+              {status.llm.agent_models && Object.keys(status.llm.agent_models).length > 0 && (
+                <div className="bg-am-card rounded-xl border border-am-border p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                      <Users size={20} className="text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold">Agent Model Assignments</h3>
+                      <span className="text-xs text-am-muted">Which LLM each agent uses</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {Object.entries(status.llm.agent_models).map(([agent, model]) => (
+                      <div key={agent} className="flex items-center justify-between p-2.5 bg-am-dark rounded-lg border border-am-border/50">
+                        <span className="text-sm text-gray-300 capitalize">{agent.replace('_', ' ')}</span>
+                        <span className="text-sm text-blue-400 font-mono">{model}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Pipeline Stats */}
               <div className="bg-am-card rounded-xl border border-am-border p-6">

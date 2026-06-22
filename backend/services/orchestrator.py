@@ -508,9 +508,17 @@ class OrchestrationEngine:
             pipeline.status = PipelineStatus.MERGED
 
         except Exception as e:
-            logger.error("Failed to create PR: %s", e)
+            logger.error("Failed to create PR for pipeline %s: %s", pipeline_id, e, exc_info=True)
+            error_detail = str(e)
+            # Extract HTTP status details from httpx errors
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    body = e.response.json()
+                    error_detail = body.get("message", error_detail)
+                except Exception:
+                    pass
             pipeline.status = PipelineStatus.FAILED
-            pipeline.error_message = f"PR creation failed: {e}"
+            pipeline.error_message = f"PR creation failed: {error_detail}"
             pipeline.pr_url = ""
 
         pipeline.updated_at = _now()

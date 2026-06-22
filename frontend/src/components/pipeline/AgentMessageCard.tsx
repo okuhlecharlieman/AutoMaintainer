@@ -5,16 +5,26 @@ import { AgentMessage, AGENT_CONFIG } from '@/types';
 import { getIcon } from '@/lib/icons';
 import { formatDistanceToNow } from 'date-fns';
 import ReactMarkdown from 'react-markdown';
-import { ChevronDown, ChevronRight, Brain } from 'lucide-react';
+import { ChevronDown, ChevronRight, Brain, Clock } from 'lucide-react';
 
 interface Props {
   message: AgentMessage;
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes}m ${remaining}s`;
 }
 
 export default function AgentMessageCard({ message }: Props) {
   const [showThinking, setShowThinking] = useState(false);
   const config = AGENT_CONFIG[message.agent_role];
   const Icon = getIcon(config?.icon || 'Clock');
+  const durationMs = message.metadata?.duration_ms as number | undefined;
 
   return (
     <div className="bg-am-card rounded-xl border border-am-border p-5 animate-slide-in" style={{ borderLeftColor: config?.color, borderLeftWidth: '3px' }}>
@@ -32,6 +42,12 @@ export default function AgentMessageCard({ message }: Props) {
             <span className="text-am-muted text-xs">
               {formatDistanceToNow(new Date(message.timestamp), { addSuffix: true })}
             </span>
+            {durationMs != null && (
+              <span className="text-am-muted text-xs flex items-center gap-1 ml-auto">
+                <Clock size={12} />
+                {formatDuration(durationMs)}
+              </span>
+            )}
           </div>
 
           <div className="prose prose-invert prose-sm max-w-none text-gray-300">

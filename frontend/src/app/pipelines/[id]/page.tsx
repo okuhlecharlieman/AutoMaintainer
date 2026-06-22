@@ -11,10 +11,11 @@ import CodeDiffView from '@/components/pipeline/CodeDiffView';
 import ApprovalGateway from '@/components/pipeline/ApprovalGateway';
 import ReviewScores from '@/components/pipeline/ReviewScores';
 import TestResultsPanel from '@/components/pipeline/TestResultsPanel';
+import LiveActivityPanel from '@/components/pipeline/LiveActivityPanel';
 import { api } from '@/lib/api';
 import { PipelineRun } from '@/types';
 import { useToast } from '@/components/common/Toast';
-import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye, Trash2, RotateCcw, RefreshCw } from 'lucide-react';
+import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye, Trash2, RotateCcw, Square } from 'lucide-react';
 
 export default function PipelineDetailPage() {
   const params = useParams();
@@ -131,6 +132,27 @@ export default function PipelineDetailPage() {
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {!['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) && (
+                <button
+                  onClick={async () => {
+                    setActionLoading(true);
+                    try {
+                      await api.stopPipeline(pipeline.id);
+                      toast('Pipeline stopped', 'info');
+                      const updated = await api.getPipeline(pipelineId);
+                      setPipeline(updated);
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : 'Failed to stop', 'error');
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-red-600/10 border border-red-500/20 text-red-400 rounded-lg text-sm font-medium hover:bg-red-600/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Square size={14} /> Stop
+                </button>
+              )}
               {(pipeline.status === 'failed' || pipeline.status === 'rejected') && (
                 <button
                   onClick={async () => {
@@ -235,7 +257,14 @@ export default function PipelineDetailPage() {
           <div className="min-h-[400px]">
             {activeTab === 'timeline' && (
               <div className="space-y-4">
-                {pipeline.agent_messages.length === 0 ? (
+                {!['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) && (
+                  <LiveActivityPanel pipelineId={pipeline.id} status={pipeline.status} />
+                )}
+                {pipeline.agent_messages.length === 0 && ['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) ? (
+                  <div className="glass rounded-xl p-8 text-center">
+                    <p className="text-am-muted text-sm">No agent messages recorded</p>
+                  </div>
+                ) : pipeline.agent_messages.length === 0 ? (
                   <div className="glass rounded-xl p-8 text-center">
                     <div className="w-12 h-12 rounded-xl bg-am-accent/10 flex items-center justify-center mx-auto mb-3">
                       <Loader2 size={24} className="text-am-accent animate-spin" />

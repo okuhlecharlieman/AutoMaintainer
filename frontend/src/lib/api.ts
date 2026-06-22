@@ -144,8 +144,18 @@ export const api = {
     });
   },
 
+  async stopPipeline(id: string): Promise<{ status: string; message: string }> {
+    return fetchAPI(`/pipelines/${id}/stop`, {
+      method: 'POST',
+    });
+  },
+
   async getPipelineMessages(id: string): Promise<{ messages: unknown[] }> {
     return fetchAPI(`/pipelines/${id}/messages`);
+  },
+
+  getPipelineEventsUrl(id: string): string {
+    return `${API_BASE}/pipelines/${id}/events`;
   },
 
   async getMemory(repoUrl: string): Promise<{ repo_url: string; memory: Record<string, unknown[]> }> {

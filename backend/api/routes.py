@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import List, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 
@@ -243,6 +246,54 @@ async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"pipeline_id": new_pipeline.id, "status": new_pipeline.status.value}
+
+
+@router.post("/pipelines/{pipeline_id}/stop")
+async def stop_pipeline(pipeline_id: str):
+    """Stop/cancel a running pipeline."""
+    try:
+        pipeline = await orchestration_engine.cancel_pipeline(pipeline_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": pipeline.status.value, "message": "Pipeline stopped"}
+
+
+@router.get("/pipelines/{pipeline_id}/events")
+async def pipeline_events(pipeline_id: str):
+    """Server-Sent Events stream for real-time pipeline updates."""
+    pipeline = orchestration_engine.get_pipeline(pipeline_id)
+    if not pipeline:
+        raise HTTPException(status_code=404, detail="Pipeline not found")
+
+    queue = orchestration_engine.subscribe(pipeline_id)
+
+    async def event_generator():
+        try:
+            # Send initial status
+            yield f"data: {json.dumps({'event_type': 'connected', 'status': pipeline.status.value})}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event_data = {
+                        "event_type": event.event_type,
+                        "agent_role": event.agent_role.value if event.agent_role else None,
+                        "data": event.data,
+                        "timestamp": event.timestamp.isoformat(),
+                    }
+                    yield f"data: {json.dumps(event_data)}\n\n"
+                    # End stream on terminal events
+                    if event.event_type in ("pipeline_failed", "awaiting_approval"):
+                        break
+                except asyncio.TimeoutError:
+                    yield f"data: {json.dumps({'event_type': 'heartbeat'})}\n\n"
+        finally:
+            orchestration_engine.unsubscribe(pipeline_id, queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/pipelines/{pipeline_id}/messages")

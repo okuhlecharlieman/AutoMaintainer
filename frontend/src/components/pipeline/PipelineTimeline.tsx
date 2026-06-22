@@ -1,6 +1,6 @@
 'use client';
 
-import { PipelineRun, PipelineStatus, STATUS_CONFIG } from '@/types';
+import { PipelineRun, PipelineStatus, STATUS_CONFIG, AgentRole } from '@/types';
 import { getIcon } from '@/lib/icons';
 import { Check, X } from 'lucide-react';
 
@@ -8,16 +8,25 @@ interface Props {
   pipeline: PipelineRun;
 }
 
-const PIPELINE_STEPS: { status: PipelineStatus; label: string; agent: string }[] = [
-  { status: 'analyzing', label: 'Analyze', agent: 'Issue Analyst' },
-  { status: 'planning', label: 'Plan', agent: 'Architect' },
-  { status: 'developing', label: 'Develop', agent: 'Developer' },
-  { status: 'testing', label: 'Test', agent: 'QA Tester' },
-  { status: 'security_scan', label: 'Security', agent: 'Security' },
-  { status: 'reviewing', label: 'Review', agent: 'Reviewer' },
-  { status: 'documenting', label: 'Document', agent: 'Docs' },
-  { status: 'awaiting_approval', label: 'Approve', agent: 'Human' },
+const PIPELINE_STEPS: { status: PipelineStatus; label: string; agent: string; agentRole: AgentRole }[] = [
+  { status: 'analyzing', label: 'Analyze', agent: 'Issue Analyst', agentRole: 'issue_analyst' },
+  { status: 'planning', label: 'Plan', agent: 'Architect', agentRole: 'architect' },
+  { status: 'developing', label: 'Develop', agent: 'Developer', agentRole: 'developer' },
+  { status: 'testing', label: 'Test', agent: 'QA Tester', agentRole: 'qa_tester' },
+  { status: 'security_scan', label: 'Security', agent: 'Security', agentRole: 'security' },
+  { status: 'reviewing', label: 'Review', agent: 'Reviewer', agentRole: 'reviewer' },
+  { status: 'documenting', label: 'Document', agent: 'Docs', agentRole: 'documentation' },
+  { status: 'awaiting_approval', label: 'Approve', agent: 'Human', agentRole: 'issue_analyst' },
 ];
+
+function formatStepDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remaining = Math.round(seconds % 60);
+  return `${minutes}m${remaining}s`;
+}
 
 const STATUS_ORDER: PipelineStatus[] = [
   'pending', 'analyzing', 'planning', 'developing', 'testing',
@@ -65,6 +74,15 @@ export default function PipelineTimeline({ pipeline }: Props) {
     return 'pending';
   };
 
+  // Build a map of agent_role -> duration_ms from messages
+  const durationMap: Record<string, number> = {};
+  for (const msg of pipeline.agent_messages || []) {
+    const dur = msg.metadata?.duration_ms as number | undefined;
+    if (dur != null) {
+      durationMap[msg.agent_role] = dur;
+    }
+  }
+
   return (
     <div className="bg-am-card rounded-xl border border-am-border p-5">
       <div className="flex items-center gap-1 overflow-x-auto pb-2">
@@ -73,6 +91,7 @@ export default function PipelineTimeline({ pipeline }: Props) {
           const config = STATUS_CONFIG[step.status];
           const isLast = idx === PIPELINE_STEPS.length - 1;
           const StepIcon = config ? getIcon(config.icon) : null;
+          const stepDuration = durationMap[step.agentRole];
 
           return (
             <div key={step.status} className="flex items-center shrink-0">
@@ -105,6 +124,9 @@ export default function PipelineTimeline({ pipeline }: Props) {
                 }`}>
                   {step.label}
                 </span>
+                {stepDuration != null && state === 'completed' && (
+                  <span className="text-[9px] text-am-muted/70">{formatStepDuration(stepDuration)}</span>
+                )}
               </div>
 
               {!isLast && (

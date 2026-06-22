@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -54,6 +55,21 @@ class OrchestrationEngine:
         self._event_handlers: List[Callable] = []
         self._running: Dict[str, asyncio.Task] = {}
         self._concurrency_semaphore: Optional[asyncio.Semaphore] = None
+        self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
+
+    def subscribe(self, pipeline_id: str) -> asyncio.Queue:
+        """Subscribe to real-time events for a pipeline."""
+        queue: asyncio.Queue = asyncio.Queue()
+        self._event_subscribers.setdefault(pipeline_id, []).append(queue)
+        return queue
+
+    def unsubscribe(self, pipeline_id: str, queue: asyncio.Queue):
+        """Unsubscribe from pipeline events."""
+        subs = self._event_subscribers.get(pipeline_id, [])
+        if queue in subs:
+            subs.remove(queue)
+        if not subs:
+            self._event_subscribers.pop(pipeline_id, None)
 
     @property
     def _semaphore(self) -> asyncio.Semaphore:
@@ -130,6 +146,12 @@ class OrchestrationEngine:
                 await session.commit()
 
     async def _emit_event(self, event: PipelineEvent):
+        # Push to SSE subscribers
+        for queue in self._event_subscribers.get(event.pipeline_id, []):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
         for handler in self._event_handlers:
             try:
                 if asyncio.iscoroutinefunction(handler):
@@ -141,6 +163,28 @@ class OrchestrationEngine:
 
     def get_pipeline(self, pipeline_id: str) -> Optional[PipelineRun]:
         return self._pipelines.get(pipeline_id)
+
+    async def cancel_pipeline(self, pipeline_id: str) -> PipelineRun:
+        """Cancel a running pipeline."""
+        pipeline = self._pipelines.get(pipeline_id)
+        if not pipeline:
+            raise ValueError(f"Pipeline {pipeline_id} not found")
+        terminal = {PipelineStatus.MERGED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
+        if pipeline.status in terminal:
+            raise ValueError(f"Pipeline already in terminal state '{pipeline.status.value}'")
+        task = self._running.pop(pipeline_id, None)
+        if task:
+            task.cancel()
+        pipeline.failed_at_status = pipeline.status.value
+        pipeline.status = PipelineStatus.FAILED
+        pipeline.error_message = "Pipeline stopped by user"
+        pipeline.updated_at = _now()
+        await self._persist_pipeline(pipeline)
+        await self._emit_event(PipelineEvent(
+            pipeline_id=pipeline.id, event_type="pipeline_failed",
+            data={"error": "cancelled_by_user", "failed_at": pipeline.failed_at_status},
+        ))
+        return pipeline
 
     async def delete_pipeline(self, pipeline_id: str) -> None:
         """Delete a pipeline (only terminal states: merged, rejected, failed)."""
@@ -249,6 +293,7 @@ class OrchestrationEngine:
                 context["memory"] = memory_service.recall(pipeline.repo_url)
 
                 # Phase 2: Issue Analysis
+                stage_start = time.perf_counter()
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_start",
                     agent_role=AgentRole.ISSUE_ANALYST,
@@ -259,12 +304,14 @@ class OrchestrationEngine:
                 analysis_result = await analyst.execute(pipeline, context)
                 analysis = analysis_result["analysis"]
                 pipeline.analysis = analysis
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                analysis_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(analysis_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.ISSUE_ANALYST,
-                    data={"summary": analysis.summary},
+                    data={"summary": analysis.summary, "duration_ms": duration_ms},
                 ))
 
                 # Fetch affected file contents
@@ -281,6 +328,7 @@ class OrchestrationEngine:
                 context["analysis"] = analysis
 
                 # Phase 3: Architecture Planning
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.PLANNING
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -292,14 +340,18 @@ class OrchestrationEngine:
                 architect = self.agents[AgentRole.ARCHITECT]
                 arch_result = await architect.execute(pipeline, context)
                 context["architecture_plan"] = arch_result["architecture_plan"]
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                arch_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(arch_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.ARCHITECT,
+                    data={"duration_ms": duration_ms},
                 ))
 
                 # Phase 4: Development
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.DEVELOPING
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -313,12 +365,14 @@ class OrchestrationEngine:
                 code_changes = dev_result["code_changes"]
                 context["code_changes"] = code_changes
                 pipeline.code_changes = code_changes
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                dev_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(dev_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.DEVELOPER,
-                    data={"files_changed": len(code_changes)},
+                    data={"files_changed": len(code_changes), "duration_ms": duration_ms},
                 ))
 
                 if not code_changes:
@@ -337,6 +391,7 @@ class OrchestrationEngine:
                     return
 
                 # Phase 5: Testing
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.TESTING
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -349,15 +404,18 @@ class OrchestrationEngine:
                 qa_result = await qa.execute(pipeline, context)
                 context["test_results"] = qa_result["test_results"]
                 pipeline.test_results = qa_result["test_results"]
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                qa_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(qa_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.QA_TESTER,
-                    data={"tests_passed": sum(1 for t in qa_result["test_results"] if t.passed)},
+                    data={"tests_passed": sum(1 for t in qa_result["test_results"] if t.passed), "duration_ms": duration_ms},
                 ))
 
                 # Phase 6: Security Scan
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.SECURITY_SCAN
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -370,15 +428,18 @@ class OrchestrationEngine:
                 sec_result = await security.execute(pipeline, context)
                 context["security_findings"] = sec_result["security_findings"]
                 pipeline.security_findings = sec_result["security_findings"]
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                sec_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(sec_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.SECURITY,
-                    data={"findings": len(sec_result["security_findings"])},
+                    data={"findings": len(sec_result["security_findings"]), "duration_ms": duration_ms},
                 ))
 
                 # Phase 7: Code Review
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.REVIEWING
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -391,15 +452,18 @@ class OrchestrationEngine:
                 review_result = await reviewer.execute(pipeline, context)
                 context["review_score"] = review_result["review_score"]
                 pipeline.review_score = review_result["review_score"]
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                review_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(review_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.REVIEWER,
-                    data={"approved": review_result["approved"], "score": review_result["review_score"].overall},
+                    data={"approved": review_result["approved"], "score": review_result["review_score"].overall, "duration_ms": duration_ms},
                 ))
 
                 # Phase 8: Documentation
+                stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.DOCUMENTING
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -412,11 +476,14 @@ class OrchestrationEngine:
                 docs_result = await docs.execute(pipeline, context)
                 pipeline.pr_title = docs_result.get("pr_title", f"Fix: {pipeline.issue_title}")
                 pipeline.pr_body = docs_result.get("pr_body", "")
+                duration_ms = int((time.perf_counter() - stage_start) * 1000)
+                docs_result["message"].metadata["duration_ms"] = duration_ms
                 pipeline.agent_messages.append(docs_result["message"])
 
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="agent_complete",
                     agent_role=AgentRole.DOCUMENTATION,
+                    data={"duration_ms": duration_ms},
                 ))
 
                 # Phase 9: Awaiting Human Approval

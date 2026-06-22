@@ -65,6 +65,7 @@ export interface PipelineRun {
   created_at: string;
   updated_at: string;
   error_message?: string;
+  failed_at_status?: PipelineStatus;
 }
 
 export interface PipelineListItem {

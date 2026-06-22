@@ -144,6 +144,7 @@ class PipelineRun(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     error_message: Optional[str] = None
+    failed_at_status: Optional[str] = None
 
     def db_dump(self) -> dict[str, Any]:
         """Dump model to a dict suitable for database storage.

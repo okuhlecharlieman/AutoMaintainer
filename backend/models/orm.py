@@ -30,6 +30,7 @@ class PipelineORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    failed_at_status: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
 def pipeline_to_orm(pipeline: PipelineRun) -> PipelineORM:
@@ -58,6 +59,7 @@ def orm_to_pipeline(orm: PipelineORM) -> PipelineRun:
         "created_at": orm.created_at,
         "updated_at": orm.updated_at,
         "error_message": orm.error_message,
+        "failed_at_status": orm.failed_at_status,
     }
     return PipelineRun.model_validate(data)
 

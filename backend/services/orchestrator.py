@@ -444,24 +444,26 @@ class OrchestrationEngine:
 
             except asyncio.CancelledError:
                 logger.warning("Pipeline %s cancelled (shutdown or timeout)", pipeline.id)
+                pipeline.failed_at_status = pipeline.status.value
                 pipeline.status = PipelineStatus.FAILED
                 pipeline.error_message = "Pipeline cancelled"
                 pipeline.updated_at = _now()
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="pipeline_failed",
-                    data={"error": "cancelled"},
+                    data={"error": "cancelled", "failed_at": pipeline.failed_at_status},
                 ))
 
             except Exception as e:
                 logger.error("Pipeline %s failed: %s", pipeline.id, e, exc_info=True)
+                pipeline.failed_at_status = pipeline.status.value
                 pipeline.status = PipelineStatus.FAILED
                 pipeline.error_message = str(e)
                 pipeline.updated_at = _now()
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="pipeline_failed",
-                    data={"error": str(e)},
+                    data={"error": str(e), "failed_at": pipeline.failed_at_status},
                 ))
 
             finally:

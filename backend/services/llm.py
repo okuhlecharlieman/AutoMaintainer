@@ -8,8 +8,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_RETRIES = 2
 RATE_LIMIT_BASE_DELAY = 5
+
+
+class RateLimitExhausted(Exception):
+    """All retries exhausted due to rate limiting on a specific model."""
+
+    def __init__(self, model: str, original_error: Exception):
+        self.model = model
+        self.original_error = original_error
+        super().__init__(f"Rate limit exhausted on {model} after retries: {original_error}")
 
 
 class LLMClient:
@@ -40,6 +49,7 @@ class LLMClient:
         if response_format:
             kwargs["response_format"] = response_format
 
+        last_error: Optional[Exception] = None
         for attempt in range(RATE_LIMIT_RETRIES + 1):
             try:
                 response = await self.client.chat.completions.create(**kwargs)
@@ -47,24 +57,29 @@ class LLMClient:
             except Exception as e:
                 error_str = str(e)
                 is_rate_limit = "429" in error_str or "rate" in error_str.lower()
-                if is_rate_limit and attempt < RATE_LIMIT_RETRIES:
-                    # Extract retry-after hint if available
-                    delay = RATE_LIMIT_BASE_DELAY * (attempt + 1)
-                    if hasattr(e, 'response') and e.response is not None:
-                        try:
-                            body = e.response.json()
-                            hint = body.get("error", {}).get("metadata", {}).get("retry_after_seconds", delay)
-                            delay = max(int(hint), RATE_LIMIT_BASE_DELAY)
-                        except Exception:
-                            pass
-                    logger.warning(
-                        "Rate limited on %s (attempt %d/%d), retrying in %ds",
-                        self.model, attempt + 1, RATE_LIMIT_RETRIES, delay,
-                    )
-                    await asyncio.sleep(delay)
-                    continue
+                if is_rate_limit:
+                    last_error = e
+                    if attempt < RATE_LIMIT_RETRIES:
+                        delay = RATE_LIMIT_BASE_DELAY * (attempt + 1)
+                        if hasattr(e, 'response') and e.response is not None:
+                            try:
+                                body = e.response.json()
+                                hint = body.get("error", {}).get("metadata", {}).get("retry_after_seconds", delay)
+                                delay = max(int(hint), RATE_LIMIT_BASE_DELAY)
+                            except Exception:
+                                pass
+                        logger.warning(
+                            "Rate limited on %s (attempt %d/%d), retrying in %ds",
+                            self.model, attempt + 1, RATE_LIMIT_RETRIES, delay,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    # All retries exhausted — raise specific exception for fallback
+                    raise RateLimitExhausted(self.model, e) from e
                 logger.error(f"LLM API error ({self.model}): {e}")
                 raise
+        # Should not reach here, but just in case
+        raise RateLimitExhausted(self.model, last_error or RuntimeError("Unknown rate limit error"))
 
     async def structured_chat(
         self,
@@ -158,6 +173,44 @@ class LLMClient:
             raise
 
 
+class FallbackLLMClient(LLMClient):
+    """Wraps a primary LLMClient with automatic fallback to other models on rate limits."""
+
+    def __init__(self, primary: LLMClient, fallbacks: List[LLMClient]):
+        # Initialize with primary's config
+        super().__init__(primary.config)
+        self._primary = primary
+        self._fallbacks = fallbacks
+
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        response_format: Optional[Dict] = None,
+    ) -> str:
+        try:
+            return await self._primary.chat(messages, temperature, max_tokens, response_format)
+        except RateLimitExhausted as e:
+            logger.warning("Model %s exhausted rate limits, trying fallbacks...", e.model)
+            for fb in self._fallbacks:
+                try:
+                    logger.info("Falling back to %s", fb.model)
+                    return await fb.chat(messages, temperature, max_tokens, response_format)
+                except RateLimitExhausted:
+                    logger.warning("Fallback %s also rate-limited, trying next...", fb.model)
+                    continue
+                except Exception as fb_err:
+                    logger.warning("Fallback %s failed: %s", fb.model, fb_err)
+                    continue
+            # All fallbacks exhausted
+            raise RuntimeError(
+                f"All models rate-limited. Primary: {e.model}. "
+                f"Tried {len(self._fallbacks)} fallback(s). "
+                f"Please wait a few minutes and retry."
+            ) from e
+
+
 class LLMRegistry:
     """Manages multiple LLM clients and routes requests to the right model."""
 
@@ -178,45 +231,62 @@ class LLMRegistry:
         if not self._clients:
             logger.warning("No LLM models configured. Check DASHSCOPE_API_KEY or LLM_MODELS.")
 
+    def _get_fallbacks(self, exclude_alias: str) -> List[LLMClient]:
+        """Get all clients except the given alias, in registration order."""
+        return [
+            self._clients[alias]
+            for alias in self._fallback_order
+            if alias != exclude_alias and alias in self._clients
+        ]
+
     def get_client(self, alias: Optional[str] = None) -> LLMClient:
-        """Get a client by alias, falling back to the default or first available."""
+        """Get a client by alias with automatic fallback on rate limits."""
         settings = get_settings()
 
-        # Try requested alias
+        # Resolve the primary alias
+        primary_alias = None
         if alias and alias in self._clients:
-            return self._clients[alias]
-
-        # Try default model
-        default = settings.default_model
-        if default in self._clients:
+            primary_alias = alias
+        elif settings.default_model in self._clients:
+            primary_alias = settings.default_model
             if alias:
-                logger.warning(f"Model '{alias}' not found, falling back to '{default}'")
-            return self._clients[default]
+                logger.warning(f"Model '{alias}' not found, falling back to '{primary_alias}'")
+        elif self._fallback_order:
+            primary_alias = self._fallback_order[0]
+            logger.warning(f"Model '{alias or settings.default_model}' not found, falling back to '{primary_alias}'")
 
-        # Fall back to first registered client
-        if self._fallback_order:
-            fallback = self._fallback_order[0]
-            logger.warning(f"Model '{alias or default}' not found, falling back to '{fallback}'")
-            return self._clients[fallback]
+        if not primary_alias:
+            raise RuntimeError("No LLM models configured")
 
-        raise RuntimeError("No LLM models configured")
+        primary = self._clients[primary_alias]
+        fallbacks = self._get_fallbacks(primary_alias)
+        if fallbacks:
+            return FallbackLLMClient(primary, fallbacks)
+        return primary
 
     def get_client_for_agent(self, agent_role: str, preferred_model: Optional[str] = None) -> LLMClient:
-        """Resolve the best client for a given agent."""
+        """Resolve the best client for a given agent, with fallback on rate limits."""
         settings = get_settings()
 
-        # Agent's own preference takes priority
-        if preferred_model:
-            if preferred_model in self._clients:
-                return self._clients[preferred_model]
-            logger.warning(f"Preferred model '{preferred_model}' for {agent_role} not found")
+        # Determine primary alias
+        primary_alias = None
+        if preferred_model and preferred_model in self._clients:
+            primary_alias = preferred_model
+        else:
+            if preferred_model:
+                logger.warning(f"Preferred model '{preferred_model}' for {agent_role} not found")
+            agent_alias = settings.get_agent_model(agent_role)
+            if agent_alias in self._clients:
+                primary_alias = agent_alias
 
-        # Check per-agent config override
-        agent_alias = settings.get_agent_model(agent_role)
-        if agent_alias in self._clients:
-            return self._clients[agent_alias]
+        if not primary_alias:
+            return self.get_client()
 
-        return self.get_client()
+        primary = self._clients[primary_alias]
+        fallbacks = self._get_fallbacks(primary_alias)
+        if fallbacks:
+            return FallbackLLMClient(primary, fallbacks)
+        return primary
 
     def list_models(self) -> List[Dict[str, str]]:
         """List all registered models with their details."""

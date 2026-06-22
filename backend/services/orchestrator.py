@@ -57,6 +57,13 @@ class OrchestrationEngine:
         self._concurrency_semaphore: Optional[asyncio.Semaphore] = None
         self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
 
+    def _agent_timeout(self, role: AgentRole) -> int:
+        """Get the timeout in seconds for a given agent role."""
+        settings = get_settings()
+        if role == AgentRole.DEVELOPER:
+            return settings.agent_timeout_developer
+        return settings.agent_timeout_default
+
     def subscribe(self, pipeline_id: str) -> asyncio.Queue:
         """Subscribe to real-time events for a pipeline."""
         queue: asyncio.Queue = asyncio.Queue()
@@ -301,7 +308,7 @@ class OrchestrationEngine:
                 ))
 
                 analyst = self.agents[AgentRole.ISSUE_ANALYST]
-                analysis_result = await analyst.execute(pipeline, context)
+                analysis_result = await asyncio.wait_for(analyst.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.ISSUE_ANALYST))
                 analysis = analysis_result["analysis"]
                 pipeline.analysis = analysis
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
@@ -338,7 +345,7 @@ class OrchestrationEngine:
                 ))
 
                 architect = self.agents[AgentRole.ARCHITECT]
-                arch_result = await architect.execute(pipeline, context)
+                arch_result = await asyncio.wait_for(architect.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.ARCHITECT))
                 context["architecture_plan"] = arch_result["architecture_plan"]
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
                 arch_result["message"].metadata["duration_ms"] = duration_ms
@@ -361,7 +368,7 @@ class OrchestrationEngine:
                 ))
 
                 developer = self.agents[AgentRole.DEVELOPER]
-                dev_result = await developer.execute(pipeline, context)
+                dev_result = await asyncio.wait_for(developer.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.DEVELOPER))
                 code_changes = dev_result["code_changes"]
                 context["code_changes"] = code_changes
                 pipeline.code_changes = code_changes
@@ -401,7 +408,7 @@ class OrchestrationEngine:
                 ))
 
                 qa = self.agents[AgentRole.QA_TESTER]
-                qa_result = await qa.execute(pipeline, context)
+                qa_result = await asyncio.wait_for(qa.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.QA_TESTER))
                 context["test_results"] = qa_result["test_results"]
                 pipeline.test_results = qa_result["test_results"]
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
@@ -425,7 +432,7 @@ class OrchestrationEngine:
                 ))
 
                 security = self.agents[AgentRole.SECURITY]
-                sec_result = await security.execute(pipeline, context)
+                sec_result = await asyncio.wait_for(security.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.SECURITY))
                 context["security_findings"] = sec_result["security_findings"]
                 pipeline.security_findings = sec_result["security_findings"]
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
@@ -449,7 +456,7 @@ class OrchestrationEngine:
                 ))
 
                 reviewer = self.agents[AgentRole.REVIEWER]
-                review_result = await reviewer.execute(pipeline, context)
+                review_result = await asyncio.wait_for(reviewer.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.REVIEWER))
                 context["review_score"] = review_result["review_score"]
                 pipeline.review_score = review_result["review_score"]
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
@@ -473,7 +480,7 @@ class OrchestrationEngine:
                 ))
 
                 docs = self.agents[AgentRole.DOCUMENTATION]
-                docs_result = await docs.execute(pipeline, context)
+                docs_result = await asyncio.wait_for(docs.execute(pipeline, context), timeout=self._agent_timeout(AgentRole.DOCUMENTATION))
                 pipeline.pr_title = docs_result.get("pr_title", f"Fix: {pipeline.issue_title}")
                 pipeline.pr_body = docs_result.get("pr_body", "")
                 duration_ms = int((time.perf_counter() - stage_start) * 1000)
@@ -519,6 +526,20 @@ class OrchestrationEngine:
                 await self._emit_event(PipelineEvent(
                     pipeline_id=pipeline.id, event_type="pipeline_failed",
                     data={"error": "cancelled", "failed_at": pipeline.failed_at_status},
+                ))
+
+            except (asyncio.TimeoutError, TimeoutError) as e:
+                agent_name = pipeline.status.value
+                timeout_used = self._agent_timeout(AgentRole.DEVELOPER) if "develop" in agent_name.lower() else get_settings().agent_timeout_default
+                logger.error("Pipeline %s: agent timed out at %s after %ds", pipeline.id, agent_name, timeout_used)
+                pipeline.failed_at_status = pipeline.status.value
+                pipeline.status = PipelineStatus.FAILED
+                pipeline.error_message = f"Agent timed out at {agent_name} stage (>{timeout_used}s). The LLM may be overloaded — try again later or use a different model."
+                pipeline.updated_at = _now()
+                await self._persist_pipeline(pipeline)
+                await self._emit_event(PipelineEvent(
+                    pipeline_id=pipeline.id, event_type="pipeline_failed",
+                    data={"error": "agent_timeout", "failed_at": pipeline.failed_at_status, "timeout_seconds": timeout_used},
                 ))
 
             except Exception as e:

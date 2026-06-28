@@ -10,7 +10,8 @@ logger = logging.getLogger(__name__)
 
 RATE_LIMIT_RETRIES = 2
 RATE_LIMIT_BASE_DELAY = 5
-LLM_CALL_TIMEOUT = 90  # seconds — max time for a single LLM API call
+LLM_CALL_TIMEOUT = 90  # seconds — default max time for a single LLM API call
+LLM_CALL_TIMEOUT_DEVELOPER = 180  # seconds — longer timeout for large models (Developer agent)
 
 
 class RateLimitExhausted(Exception):
@@ -39,7 +40,9 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         response_format: Optional[Dict] = None,
+        call_timeout: Optional[int] = None,
     ) -> str:
+        timeout = call_timeout or LLM_CALL_TIMEOUT
         kwargs: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -55,12 +58,12 @@ class LLMClient:
             try:
                 response = await asyncio.wait_for(
                     self.client.chat.completions.create(**kwargs),
-                    timeout=LLM_CALL_TIMEOUT,
+                    timeout=timeout,
                 )
                 return response.choices[0].message.content or ""
             except asyncio.TimeoutError:
-                logger.error("LLM call to %s timed out after %ds", self.model, LLM_CALL_TIMEOUT)
-                raise TimeoutError(f"LLM call to {self.model} timed out after {LLM_CALL_TIMEOUT}s")
+                logger.error("LLM call to %s timed out after %ds", self.model, timeout)
+                raise TimeoutError(f"LLM call to {self.model} timed out after {timeout}s")
             except Exception as e:
                 error_str = str(e)
                 is_rate_limit = "429" in error_str or "rate" in error_str.lower()
@@ -95,6 +98,7 @@ class LLMClient:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         retries: int = 1,
+        call_timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
         messages = [
             {"role": "system", "content": system_prompt},
@@ -107,6 +111,7 @@ class LLMClient:
                 temperature=temperature or 0.3,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
+                call_timeout=call_timeout,
             )
             parsed = self._extract_json(output)
             if parsed is not None:
@@ -232,24 +237,30 @@ class FallbackLLMClient(LLMClient):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         response_format: Optional[Dict] = None,
+        call_timeout: Optional[int] = None,
     ) -> str:
         try:
-            return await self._primary.chat(messages, temperature, max_tokens, response_format)
-        except RateLimitExhausted as e:
-            logger.warning("Model %s exhausted rate limits, trying fallbacks...", e.model)
+            return await self._primary.chat(messages, temperature, max_tokens, response_format, call_timeout)
+        except (RateLimitExhausted, TimeoutError) as e:
+            is_timeout = isinstance(e, TimeoutError)
+            reason = "timed out" if is_timeout else "exhausted rate limits"
+            logger.warning("Model %s %s, trying fallbacks...", self._primary.model, reason)
             for fb in self._fallbacks:
                 try:
                     logger.info("Falling back to %s", fb.model)
-                    return await fb.chat(messages, temperature, max_tokens, response_format)
+                    return await fb.chat(messages, temperature, max_tokens, response_format, call_timeout)
                 except RateLimitExhausted:
                     logger.warning("Fallback %s also rate-limited, trying next...", fb.model)
+                    continue
+                except TimeoutError:
+                    logger.warning("Fallback %s also timed out, trying next...", fb.model)
                     continue
                 except Exception as fb_err:
                     logger.warning("Fallback %s failed: %s", fb.model, fb_err)
                     continue
             # All fallbacks exhausted
             raise RuntimeError(
-                f"All models rate-limited. Primary: {e.model}. "
+                f"All models failed ({reason}). Primary: {self._primary.model}. "
                 f"Tried {len(self._fallbacks)} fallback(s). "
                 f"Please wait a few minutes and retry."
             ) from e

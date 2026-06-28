@@ -6,11 +6,15 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+import json
+
 from api.routes import router, LoginRequest
 from core.auth import public_endpoint, create_access_token
 from core.config import get_settings
 from core.database import init_db, async_session
 from core.github_oauth import github_oauth_redirect, github_oauth_callback
+from models.orm import RuntimeSettingsORM
+from services.llm import llm_registry
 from services.memory import memory_service
 from services.orchestrator import orchestration_engine
 
@@ -31,6 +35,17 @@ async def lifespan(app: FastAPI):
 
     await memory_service.initialize()
     logger.info("Loaded persisted memories")
+
+    # Load runtime agent-model overrides from database
+    try:
+        async with async_session() as session:
+            row = await session.get(RuntimeSettingsORM, "agent_models")
+            if row:
+                overrides = json.loads(row.value)
+                llm_registry.set_agent_models(overrides)
+                logger.info("Loaded persisted agent-model overrides: %s", overrides)
+    except Exception as e:
+        logger.warning("Failed to load runtime agent-model settings: %s", e)
 
     yield
 

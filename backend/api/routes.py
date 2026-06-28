@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import List, Optional
+from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,7 +16,7 @@ from core.config import get_settings
 from core.database import async_session
 from integrations.github import github_client
 from models import MemoryEntry, PipelineRun, PipelineStatus
-from models.orm import UserORM
+from models.orm import UserORM, RuntimeSettingsORM
 from services.llm import llm_registry
 from services.memory import memory_service
 from services.orchestrator import orchestration_engine
@@ -373,10 +373,7 @@ async def system_status():
         "llm": {
             "models": llm_registry.list_models(),
             "default_model": settings.default_model,
-            "agent_models": {
-                role: settings.get_agent_model(role)
-                for role in ["developer", "reviewer", "architect", "issue_analyst", "qa_tester", "security", "documentation"]
-            },
+            "agent_models": llm_registry.get_agent_models(),
         },
         "pipelines": {
             "total": len(pipelines),
@@ -384,6 +381,48 @@ async def system_status():
             "running_tasks": len(orchestration_engine._running),
         },
     }
+
+
+# ── Agent model configuration ──────────────────────────────────────────────
+
+class AgentModelsUpdate(BaseModel):
+    agent_models: Dict[str, str] = Field(
+        ...,
+        description="Mapping of agent role to model alias",
+        json_schema_extra={"example": {"developer": "deepseek-v3", "reviewer": "nemotron-super"}},
+    )
+
+
+@router.get("/system/agent-models")
+async def get_agent_models(auth_info: dict = Depends(require_api_key)):
+    """Get current agent-model assignments."""
+    return {
+        "agent_models": llm_registry.get_agent_models(),
+        "available_models": llm_registry.list_models(),
+    }
+
+
+@router.put("/system/agent-models")
+async def update_agent_models(body: AgentModelsUpdate, auth_info: dict = Depends(require_api_key)):
+    """Update which LLM model each agent uses. Persists across restarts."""
+    try:
+        effective = llm_registry.set_agent_models(body.agent_models)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Persist to database
+    try:
+        async with async_session() as session:
+            row = await session.get(RuntimeSettingsORM, "agent_models")
+            if row:
+                row.value = json.dumps(llm_registry._runtime_agent_models)
+            else:
+                session.add(RuntimeSettingsORM(key="agent_models", value=json.dumps(llm_registry._runtime_agent_models)))
+            await session.commit()
+    except Exception as e:
+        logger.warning("Failed to persist agent model settings: %s", e)
+
+    return {"agent_models": effective, "available_models": llm_registry.list_models()}
 
 
 # ── Admin endpoints ─────────────────────────────────────────────────────────

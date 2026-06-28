@@ -275,6 +275,7 @@ class LLMRegistry:
     def __init__(self):
         self._clients: Dict[str, LLMClient] = {}
         self._fallback_order: List[str] = []
+        self._runtime_agent_models: Dict[str, str] = {}
         self._load_models()
 
     def _load_models(self):
@@ -326,16 +327,21 @@ class LLMRegistry:
         """Resolve the best client for a given agent, with fallback on rate limits."""
         settings = get_settings()
 
-        # Determine primary alias
+        # Determine primary alias — check runtime overrides first
         primary_alias = None
         if preferred_model and preferred_model in self._clients:
             primary_alias = preferred_model
         else:
             if preferred_model:
                 logger.warning(f"Preferred model '{preferred_model}' for {agent_role} not found")
-            agent_alias = settings.get_agent_model(agent_role)
-            if agent_alias in self._clients:
-                primary_alias = agent_alias
+            # Runtime overrides take priority over env vars
+            runtime_alias = self._runtime_agent_models.get(agent_role)
+            if runtime_alias and runtime_alias in self._clients:
+                primary_alias = runtime_alias
+            else:
+                agent_alias = settings.get_agent_model(agent_role)
+                if agent_alias in self._clients:
+                    primary_alias = agent_alias
 
         if not primary_alias:
             return self.get_client()
@@ -345,6 +351,28 @@ class LLMRegistry:
         if fallbacks:
             return FallbackLLMClient(primary, fallbacks)
         return primary
+
+    def get_agent_models(self) -> Dict[str, str]:
+        """Get effective agent-model assignments (runtime overrides + env defaults)."""
+        settings = get_settings()
+        roles = ["developer", "reviewer", "architect", "issue_analyst", "qa_tester", "security", "documentation"]
+        result = {}
+        for role in roles:
+            runtime_alias = self._runtime_agent_models.get(role)
+            if runtime_alias and runtime_alias in self._clients:
+                result[role] = runtime_alias
+            else:
+                result[role] = settings.get_agent_model(role)
+        return result
+
+    def set_agent_models(self, overrides: Dict[str, str]) -> Dict[str, str]:
+        """Update runtime agent-model assignments. Returns the effective assignments."""
+        valid_aliases = set(self._clients.keys())
+        for role, alias in overrides.items():
+            if alias not in valid_aliases:
+                raise ValueError(f"Unknown model alias '{alias}'. Available: {sorted(valid_aliases)}")
+            self._runtime_agent_models[role] = alias
+        return self.get_agent_models()
 
     def list_models(self) -> List[Dict[str, str]]:
         """List all registered models with their details."""

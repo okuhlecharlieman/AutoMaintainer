@@ -189,7 +189,23 @@ export const api = {
   async getAdminStats(): Promise<AdminStatsResponse> {
     return fetchAPI('/admin/stats');
   },
+
+  async getAgentModels(): Promise<AgentModelsResponse> {
+    return fetchAPI('/system/agent-models');
+  },
+
+  async updateAgentModels(agentModels: Record<string, string>): Promise<AgentModelsResponse> {
+    return fetchAPI('/system/agent-models', {
+      method: 'PUT',
+      body: JSON.stringify({ agent_models: agentModels }),
+    });
+  },
 };
+
+export interface AgentModelsResponse {
+  agent_models: Record<string, string>;
+  available_models: LLMModelInfo[];
+}
 
 export interface AdminUser {
   id: string;

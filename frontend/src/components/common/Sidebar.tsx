@@ -19,6 +19,7 @@ import {
   Settings,
   Search,
   User,
+  Shield,
 } from 'lucide-react';
 
 const navItems = [
@@ -28,6 +29,7 @@ const navItems = [
   { href: '/repo', label: 'Repo Map', icon: Map },
   { href: '/memory', label: 'Memory', icon: Brain },
   { href: '/settings', label: 'Settings', icon: Settings },
+  { href: '/admin', label: 'Admin', icon: Shield },
 ];
 
 export default function Sidebar() {

@@ -181,4 +181,42 @@ export const api = {
   async listUserRepos(): Promise<{ repos: { name: string; full_name: string; url: string; description: string; private: boolean }[] }> {
     return fetchAPI('/repos');
   },
+
+  async getAdminUsers(): Promise<AdminUsersResponse> {
+    return fetchAPI('/admin/users');
+  },
+
+  async getAdminStats(): Promise<AdminStatsResponse> {
+    return fetchAPI('/admin/stats');
+  },
 };
+
+export interface AdminUser {
+  id: string;
+  github_username: string;
+  github_id: number;
+  avatar_url: string | null;
+  created_at: string | null;
+  last_active: string | null;
+}
+
+export interface AdminUsersResponse {
+  total_users: number;
+  users: AdminUser[];
+}
+
+export interface AdminStatsResponse {
+  users: { total: number };
+  pipelines: {
+    total: number;
+    successful: number;
+    failed: number;
+    active: number;
+    success_rate: number;
+  };
+  repos: { unique: number };
+  system: {
+    models_configured: number;
+    max_concurrent: number;
+  };
+}

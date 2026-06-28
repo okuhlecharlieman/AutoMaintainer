@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from core.auth import public_endpoint, require_api_key
 from core.config import get_settings
@@ -382,6 +382,79 @@ async def system_status():
             "total": len(pipelines),
             "active": active,
             "running_tasks": len(orchestration_engine._running),
+        },
+    }
+
+
+# ── Admin endpoints ─────────────────────────────────────────────────────────
+
+@router.get("/admin/users")
+async def list_users(auth_info: dict = Depends(require_api_key)):
+    """List all registered users (admin only)."""
+    settings = get_settings()
+    # Only admin can list users
+    if auth_info.get("user") not in (settings.admin_username, "api_client"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async with async_session() as session:
+        # Get total count
+        count_result = await session.execute(select(func.count(UserORM.id)))
+        total_users = count_result.scalar() or 0
+
+        # Get user list
+        result = await session.execute(
+            select(UserORM).order_by(UserORM.created_at.desc())
+        )
+        users = result.scalars().all()
+
+    return {
+        "total_users": total_users,
+        "users": [
+            {
+                "id": u.id,
+                "github_username": u.github_username,
+                "github_id": u.github_id,
+                "avatar_url": u.avatar_url,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "last_active": u.updated_at.isoformat() if u.updated_at else None,
+            }
+            for u in users
+        ],
+    }
+
+
+@router.get("/admin/stats")
+async def admin_stats(auth_info: dict = Depends(require_api_key)):
+    """Get admin dashboard statistics."""
+    settings = get_settings()
+    if auth_info.get("user") not in (settings.admin_username, "api_client"):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    async with async_session() as session:
+        user_count = (await session.execute(select(func.count(UserORM.id)))).scalar() or 0
+
+    pipelines = orchestration_engine.list_pipelines(limit=10000)
+    total_pipelines = len(pipelines)
+    successful = sum(1 for p in pipelines if p.status == PipelineStatus.MERGED)
+    failed = sum(1 for p in pipelines if p.status == PipelineStatus.FAILED)
+    active = sum(1 for p in pipelines if p.status.value not in ("merged", "rejected", "failed"))
+
+    # Unique repos
+    unique_repos = len({p.repo_url for p in pipelines})
+
+    return {
+        "users": {"total": user_count},
+        "pipelines": {
+            "total": total_pipelines,
+            "successful": successful,
+            "failed": failed,
+            "active": active,
+            "success_rate": round(successful / total_pipelines * 100, 1) if total_pipelines > 0 else 0,
+        },
+        "repos": {"unique": unique_repos},
+        "system": {
+            "models_configured": len(llm_registry.list_models()),
+            "max_concurrent": settings.max_concurrent_pipelines,
         },
     }
 

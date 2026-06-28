@@ -632,7 +632,9 @@ class OrchestrationEngine:
         token = github_token or pipeline.github_token
         try:
             owner, repo = github_client.parse_repo_url(pipeline.repo_url)
-            branch_name = f"automaintainer/fix-{pipeline.issue_number}"
+            # Use unique branch name with pipeline ID suffix to avoid conflicts
+            short_id = pipeline.id[:8]
+            branch_name = f"automaintainer/fix-{pipeline.issue_number}-{short_id}"
 
             await github_client.create_branch(owner, repo, branch_name, token=token)
 
@@ -658,6 +660,12 @@ class OrchestrationEngine:
                 try:
                     body = e.response.json()
                     error_detail = body.get("message", error_detail)
+                    # Check for "already exists" type errors
+                    errors = body.get("errors", [])
+                    if errors:
+                        error_detail += " — " + "; ".join(
+                            err.get("message", "") for err in errors if isinstance(err, dict)
+                        )
                 except Exception:
                     pass
             pipeline.status = PipelineStatus.FAILED

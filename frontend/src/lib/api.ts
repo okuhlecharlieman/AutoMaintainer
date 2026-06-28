@@ -91,6 +91,7 @@ export const api = {
     issue_number: number;
     issue_title: string;
     issue_body: string;
+    custom_instructions?: string;
   }): Promise<{ pipeline_id: string; status: string }> {
     return fetchAPI('/pipelines/start', {
       method: 'POST',
@@ -138,9 +139,10 @@ export const api = {
     });
   },
 
-  async retryPipeline(id: string): Promise<{ pipeline_id: string; status: string }> {
+  async retryPipeline(id: string, customInstructions?: string): Promise<{ pipeline_id: string; status: string }> {
     return fetchAPI(`/pipelines/${id}/retry`, {
       method: 'POST',
+      body: JSON.stringify({ custom_instructions: customInstructions || '' }),
     });
   },
 

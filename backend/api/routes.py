@@ -55,6 +55,7 @@ class StartPipelineRequest(BaseModel):
     issue_number: int = Field(..., ge=1)
     issue_title: str = Field(..., min_length=1, max_length=1024)
     issue_body: str = Field(default="", max_length=65536)
+    custom_instructions: str = Field(default="", max_length=8192)
 
     @field_validator("repo_url", "issue_url")
     @classmethod
@@ -131,6 +132,7 @@ async def start_pipeline(request: StartPipelineRequest, auth_info: dict = Depend
             issue_number=request.issue_number,
             issue_title=request.issue_title,
             issue_body=request.issue_body,
+            custom_instructions=request.custom_instructions,
             github_token=github_token,
         )
     except ValueError as e:
@@ -149,6 +151,7 @@ async def start_demo_pipeline(request: DemoPipelineRequest, auth_info: dict = De
             issue_number=request.issue_number,
             issue_title=request.issue_title,
             issue_body=request.issue_body,
+            custom_instructions="",
             github_token=github_token,
         )
     except ValueError as e:
@@ -226,15 +229,20 @@ async def delete_pipeline(pipeline_id: str):
     return {"deleted": True}
 
 
+class RetryPipelineRequest(BaseModel):
+    custom_instructions: str = Field(default="", max_length=8192)
+
+
 @router.post("/pipelines/{pipeline_id}/retry", status_code=201)
-async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api_key)):
-    """Retry a failed pipeline by creating a new one with the same parameters."""
+async def retry_pipeline(pipeline_id: str, body: Optional[RetryPipelineRequest] = None, auth_info: dict = Depends(require_api_key)):
+    """Retry a failed pipeline, optionally with new/updated instructions."""
     pipeline = orchestration_engine.get_pipeline(pipeline_id)
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
     if pipeline.status.value not in ("failed", "rejected"):
         raise HTTPException(status_code=400, detail="Only failed or rejected pipelines can be retried")
     github_token = await _resolve_user_token(auth_info)
+    instructions = (body.custom_instructions if body else "") or pipeline.custom_instructions
     try:
         new_pipeline = await orchestration_engine.start_pipeline(
             repo_url=pipeline.repo_url,
@@ -242,6 +250,7 @@ async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api
             issue_number=pipeline.issue_number,
             issue_title=pipeline.issue_title,
             issue_body=pipeline.issue_body,
+            custom_instructions=instructions,
             github_token=github_token,
         )
     except ValueError as e:

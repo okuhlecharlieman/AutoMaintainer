@@ -43,6 +43,7 @@ Respond with JSON:
     "dependency_risks": ["any dependency concerns"]
 }}"""
 
+        security_prompt = self._inject_custom_instructions(security_prompt, context)
         result = await self.analyze(security_prompt)
 
         findings: List[SecurityFinding] = []

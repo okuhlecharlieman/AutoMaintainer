@@ -44,6 +44,7 @@ Respond with JSON:
     "commit_message": "fix: conventional commit message"
 }}"""
 
+        doc_prompt = self._inject_custom_instructions(doc_prompt, context)
         result = await self.analyze(doc_prompt)
 
         message = self.create_message(

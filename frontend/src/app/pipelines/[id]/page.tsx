@@ -15,7 +15,7 @@ import LiveActivityPanel from '@/components/pipeline/LiveActivityPanel';
 import { api } from '@/lib/api';
 import { PipelineRun } from '@/types';
 import { useToast } from '@/components/common/Toast';
-import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye, Trash2, RotateCcw, Square } from 'lucide-react';
+import { ChevronRight, ExternalLink, Loader2, ClipboardList, Code, FlaskConical, Eye, Trash2, RotateCcw, Square, MessageSquare } from 'lucide-react';
 
 export default function PipelineDetailPage() {
   const params = useParams();
@@ -26,6 +26,8 @@ export default function PipelineDetailPage() {
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showRetryPrompt, setShowRetryPrompt] = useState(false);
+  const [retryInstructions, setRetryInstructions] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const router = useRouter();
@@ -130,6 +132,12 @@ export default function PipelineDetailPage() {
                   View Pull Request
                 </a>
               )}
+              {pipeline.custom_instructions && (
+                <div className="flex items-start gap-1.5 mt-2 text-sm text-gray-400">
+                  <MessageSquare size={14} className="mt-0.5 shrink-0 text-am-accent/60" />
+                  <span className="italic">{pipeline.custom_instructions}</span>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {!['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) && (
@@ -155,18 +163,7 @@ export default function PipelineDetailPage() {
               )}
               {(pipeline.status === 'failed' || pipeline.status === 'rejected') && (
                 <button
-                  onClick={async () => {
-                    setActionLoading(true);
-                    try {
-                      const result = await api.retryPipeline(pipeline.id);
-                      toast('Pipeline retry started!', 'success');
-                      router.push(`/pipelines/${result.pipeline_id}`);
-                    } catch (err) {
-                      toast(err instanceof Error ? err.message : 'Failed to retry', 'error');
-                    } finally {
-                      setActionLoading(false);
-                    }
-                  }}
+                  onClick={() => setShowRetryPrompt(!showRetryPrompt)}
                   disabled={actionLoading}
                   className="px-4 py-2 bg-am-accent/10 border border-am-accent/20 text-am-accent-light rounded-lg text-sm font-medium hover:bg-am-accent/20 transition-colors flex items-center gap-2 disabled:opacity-50"
                 >
@@ -216,6 +213,56 @@ export default function PipelineDetailPage() {
               )}
             </div>
           </div>
+
+          {/* Retry with Custom Instructions */}
+          {showRetryPrompt && (
+            <div className="bg-am-card rounded-xl border border-am-accent/20 p-4 animate-fade-in">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare size={16} className="text-am-accent" />
+                <h3 className="text-white text-sm font-semibold">Retry with Instructions</h3>
+                <span className="text-xs text-am-muted">Guide the agents on what to do differently</span>
+              </div>
+              <textarea
+                placeholder="e.g. Use React instead of vanilla JS, keep changes minimal, focus on the theme toggle only..."
+                value={retryInstructions}
+                onChange={(e) => setRetryInstructions(e.target.value)}
+                rows={3}
+                className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent resize-none transition-colors mb-3"
+              />
+              {pipeline.custom_instructions && (
+                <p className="text-xs text-am-muted mb-3">
+                  Previous instructions: <span className="text-gray-400">{pipeline.custom_instructions}</span>
+                </p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => {
+                    setActionLoading(true);
+                    try {
+                      const result = await api.retryPipeline(pipeline.id, retryInstructions);
+                      toast('Pipeline retry started!', 'success');
+                      router.push(`/pipelines/${result.pipeline_id}`);
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : 'Failed to retry', 'error');
+                    } finally {
+                      setActionLoading(false);
+                    }
+                  }}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-am-accent hover:bg-am-accent/80 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
+                >
+                  {actionLoading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                  {retryInstructions.trim() ? 'Retry with Instructions' : 'Retry'}
+                </button>
+                <button
+                  onClick={() => { setShowRetryPrompt(false); setRetryInstructions(''); }}
+                  className="px-4 py-2 bg-am-dark border border-am-border text-gray-400 rounded-lg text-sm hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Pipeline Flow Visualization */}
           <PipelineTimeline pipeline={pipeline} />

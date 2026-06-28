@@ -75,6 +75,7 @@ Provide your review as JSON:
 
 Score each dimension 0-10. Be honest but constructive."""
 
+        review_prompt = self._inject_custom_instructions(review_prompt, context)
         result = await self.analyze(review_prompt)
 
         review_score = ReviewScore(

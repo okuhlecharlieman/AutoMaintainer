@@ -85,6 +85,7 @@ You always respond with valid JSON containing the code changes."""
             followup_context = "\n".join(followup_parts)
 
         dev_prompt = self._build_prompt(analysis_summary, arch_guidance, memory_context, existing_code, followup_context)
+        dev_prompt = self._inject_custom_instructions(dev_prompt, context)
 
         # Try up to MAX_RETRIES+1 times to get non-empty code changes
         result = {}

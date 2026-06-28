@@ -274,6 +274,7 @@ class OrchestrationEngine:
         issue_number: int,
         issue_title: str,
         issue_body: str = "",
+        custom_instructions: str = "",
         github_token: Optional[str] = None,
     ) -> PipelineRun:
         # Check concurrency limit
@@ -289,6 +290,7 @@ class OrchestrationEngine:
             issue_number=issue_number,
             issue_title=issue_title,
             issue_body=issue_body,
+            custom_instructions=custom_instructions,
             github_token=github_token,
         )
         self._pipelines[pipeline.id] = pipeline
@@ -307,6 +309,8 @@ class OrchestrationEngine:
 
     async def _run_pipeline(self, pipeline: PipelineRun, issue_body: str):
         context: Dict[str, Any] = {"issue_body": issue_body}
+        if pipeline.custom_instructions:
+            context["custom_instructions"] = pipeline.custom_instructions
         settings = get_settings()
         token = pipeline.github_token
 

@@ -48,6 +48,13 @@ class BaseAgent(ABC):
             thinking=thinking,
         )
 
+    def _inject_custom_instructions(self, prompt: str, context: Dict[str, Any]) -> str:
+        """Append user-provided custom instructions to the prompt if present."""
+        instructions = context.get("custom_instructions", "")
+        if instructions:
+            prompt += f"\n\n## Additional Instructions from User\n{instructions}"
+        return prompt
+
     async def analyze(self, prompt: str, context: str = "", max_tokens: Optional[int] = None, call_timeout: Optional[int] = None) -> Dict[str, Any]:
         full_prompt = f"{prompt}\n\n{context}" if context else prompt
         return await self.llm.structured_chat(

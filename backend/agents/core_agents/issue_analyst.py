@@ -32,6 +32,18 @@ Always respond in valid JSON format."""
         file_tree = context.get("file_tree", "")
         memory = context.get("memory", [])
 
+        # Follow-up context from previous failed attempts
+        prev_attempts = context.get("previous_attempts", [])
+        followup_section = ""
+        if prev_attempts:
+            followup_parts = ["\n## Previous Attempts (this issue was tried before and failed)"]
+            for i, attempt in enumerate(prev_attempts, 1):
+                followup_parts.append(
+                    f"- Attempt {i}: Failed at {attempt.get('failed_at', '?')} — {attempt.get('error', 'unknown')}"
+                )
+            followup_parts.append("Consider these failures in your analysis. The issue may need a simpler approach or different affected files.")
+            followup_section = "\n".join(followup_parts)
+
         analysis_prompt = f"""Analyze this GitHub issue and provide a structured analysis.
 
 ## Issue Title
@@ -49,6 +61,7 @@ Always respond in valid JSON format."""
 
 ## Relevant Memory
 {chr(10).join([f'- {m.content}' for m in memory[:5]]) if memory else 'No prior memory for this repo.'}
+{followup_section}
 
 Provide your analysis as JSON with this structure:
 {{

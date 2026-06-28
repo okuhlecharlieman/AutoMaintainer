@@ -1,5 +1,6 @@
 from agents.base_agent import BaseAgent
 from models import AgentRole, PipelineRun, CodeChange, AgentMessage
+from services.llm import LLM_CALL_TIMEOUT_DEVELOPER
 from typing import Dict, Any, List
 import logging
 
@@ -71,7 +72,19 @@ You always respond with valid JSON containing the code changes."""
                 f"- {m.content}" for m in memory[:5]
             ])
 
-        dev_prompt = self._build_prompt(analysis_summary, arch_guidance, memory_context, existing_code)
+        # Follow-up context from previous failed attempts
+        followup_context = ""
+        prev_attempts = context.get("previous_attempts", [])
+        if prev_attempts:
+            followup_parts = ["## Previous Attempts (learn from these failures)"]
+            for i, attempt in enumerate(prev_attempts, 1):
+                followup_parts.append(
+                    f"- Attempt {i}: Failed at {attempt.get('failed_at', '?')} — {attempt.get('error', 'unknown')}"
+                )
+            followup_parts.append("Avoid repeating these mistakes. Try a different approach if needed.")
+            followup_context = "\n".join(followup_parts)
+
+        dev_prompt = self._build_prompt(analysis_summary, arch_guidance, memory_context, existing_code, followup_context)
 
         # Try up to MAX_RETRIES+1 times to get non-empty code changes
         result = {}
@@ -89,9 +102,9 @@ You always respond with valid JSON containing the code changes."""
                         f"Based on the issue analysis, implement the changes to the affected files listed above. "
                         f"If you cannot fetch file contents, create new or modified file content based on the requirements."
                     )
-                    result = await self.analyze(retry_prompt, max_tokens=16384)
+                    result = await self.analyze(retry_prompt, max_tokens=16384, call_timeout=LLM_CALL_TIMEOUT_DEVELOPER)
                 else:
-                    result = await self.analyze(dev_prompt, max_tokens=16384)
+                    result = await self.analyze(dev_prompt, max_tokens=16384, call_timeout=LLM_CALL_TIMEOUT_DEVELOPER)
 
                 # Check for JSON parse failure signal from structured_chat
                 if result.get("error") == "failed_to_parse_json":
@@ -148,13 +161,14 @@ You always respond with valid JSON containing the code changes."""
 
         return {"code_changes": code_changes, "message": message, "result": result}
 
-    def _build_prompt(self, analysis_summary: str, arch_guidance: str, memory_context: str, existing_code: str) -> str:
+    def _build_prompt(self, analysis_summary: str, arch_guidance: str, memory_context: str, existing_code: str, followup_context: str = "") -> str:
+        followup_section = f"\n{followup_context}\n" if followup_context else ""
         return f"""Implement the fix for this issue.
 
 {analysis_summary}
 {arch_guidance}
 {memory_context}
-
+{followup_section}
 ## Existing Code
 {existing_code}
 

@@ -16,6 +16,7 @@ class PipelineORM(Base):
     issue_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     issue_number: Mapped[int] = mapped_column(Integer, nullable=False)
     issue_title: Mapped[str] = mapped_column(String(1024), nullable=False)
+    issue_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="")
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="pending")
     agent_messages: Mapped[Optional[list]] = mapped_column(JSON, nullable=False, default=list)
     analysis: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -45,6 +46,7 @@ def orm_to_pipeline(orm: PipelineORM) -> PipelineRun:
         "issue_url": orm.issue_url,
         "issue_number": orm.issue_number,
         "issue_title": orm.issue_title,
+        "issue_body": orm.issue_body or "",
         "status": orm.status,
         "agent_messages": orm.agent_messages or [],
         "analysis": orm.analysis,

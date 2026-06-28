@@ -241,6 +241,7 @@ async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api
             issue_url=pipeline.issue_url,
             issue_number=pipeline.issue_number,
             issue_title=pipeline.issue_title,
+            issue_body=pipeline.issue_body,
             github_token=github_token,
         )
     except ValueError as e:

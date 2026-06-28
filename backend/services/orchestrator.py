@@ -64,6 +64,45 @@ class OrchestrationEngine:
             return settings.agent_timeout_developer
         return settings.agent_timeout_default
 
+    async def _learn_from_failure(self, pipeline: PipelineRun, context: Dict[str, Any], error: str):
+        """Learn from pipeline failures so future retries are smarter."""
+        try:
+            analysis = context.get("analysis")
+            summary = analysis.summary if analysis else pipeline.issue_title
+            await memory_service.learn(
+                pipeline.repo_url,
+                f"Issue: {pipeline.issue_title}. Analysis: {summary}",
+                {
+                    "status": "failed",
+                    "error": error,
+                    "failed_at": pipeline.failed_at_status or pipeline.status.value,
+                    "code_changes": [c.model_dump() for c in pipeline.code_changes],
+                    "review_score": {},
+                },
+            )
+        except Exception as e:
+            logger.warning("Failed to learn from pipeline failure: %s", e)
+
+    def _get_previous_attempts(self, repo_url: str, issue_number: int) -> List[Dict[str, Any]]:
+        """Find previous failed pipelines for the same issue to provide follow-up context."""
+        attempts = []
+        for p in self._pipelines.values():
+            if (
+                p.repo_url == repo_url
+                and p.issue_number == issue_number
+                and p.status == PipelineStatus.FAILED
+            ):
+                attempts.append({
+                    "pipeline_id": p.id,
+                    "error": p.error_message or "unknown",
+                    "failed_at": p.failed_at_status or "unknown",
+                    "agent_messages": [
+                        {"role": m.agent_role.value, "summary": m.content[:200]}
+                        for m in p.agent_messages[:4]
+                    ],
+                })
+        return attempts[-3:]  # last 3 attempts
+
     def subscribe(self, pipeline_id: str) -> asyncio.Queue:
         """Subscribe to real-time events for a pipeline."""
         queue: asyncio.Queue = asyncio.Queue()
@@ -249,6 +288,7 @@ class OrchestrationEngine:
             issue_url=issue_url,
             issue_number=issue_number,
             issue_title=issue_title,
+            issue_body=issue_body,
             github_token=github_token,
         )
         self._pipelines[pipeline.id] = pipeline
@@ -269,6 +309,15 @@ class OrchestrationEngine:
         context: Dict[str, Any] = {"issue_body": issue_body}
         settings = get_settings()
         token = pipeline.github_token
+
+        # Inject follow-up context from previous failed attempts on the same issue
+        prev_attempts = self._get_previous_attempts(pipeline.repo_url, pipeline.issue_number)
+        if prev_attempts:
+            context["previous_attempts"] = prev_attempts
+            logger.info(
+                "Pipeline %s: found %d previous attempt(s) for issue #%d — injecting follow-up context",
+                pipeline.id, len(prev_attempts), pipeline.issue_number,
+            )
 
         async with self._semaphore:
             try:
@@ -541,6 +590,8 @@ class OrchestrationEngine:
                     pipeline_id=pipeline.id, event_type="pipeline_failed",
                     data={"error": "agent_timeout", "failed_at": pipeline.failed_at_status, "timeout_seconds": timeout_used},
                 ))
+                # Learn from the timeout failure
+                await self._learn_from_failure(pipeline, context, f"timeout at {agent_name}")
 
             except Exception as e:
                 logger.error("Pipeline %s failed: %s", pipeline.id, e, exc_info=True)
@@ -553,6 +604,8 @@ class OrchestrationEngine:
                     pipeline_id=pipeline.id, event_type="pipeline_failed",
                     data={"error": str(e), "failed_at": pipeline.failed_at_status},
                 ))
+                # Learn from the error
+                await self._learn_from_failure(pipeline, context, str(e))
 
             finally:
                 pipeline.updated_at = _now()

@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 RATE_LIMIT_RETRIES = 2
 RATE_LIMIT_BASE_DELAY = 5
 LLM_CALL_TIMEOUT = 90  # seconds — default max time for a single LLM API call
-LLM_CALL_TIMEOUT_DEVELOPER = 180  # seconds — longer timeout for large models (Developer agent)
+LLM_CALL_TIMEOUT_DEVELOPER = 120  # seconds — longer timeout for large models (Developer agent)
+LLM_CALL_TIMEOUT_FALLBACK = 60  # seconds — shorter timeout for fallback models (should be faster)
 
 
 class RateLimitExhausted(Exception):
@@ -245,10 +246,12 @@ class FallbackLLMClient(LLMClient):
             is_timeout = isinstance(e, TimeoutError)
             reason = "timed out" if is_timeout else "exhausted rate limits"
             logger.warning("Model %s %s, trying fallbacks...", self._primary.model, reason)
+            # Use shorter timeout for fallback models — they should be smaller/faster
+            fallback_timeout = LLM_CALL_TIMEOUT_FALLBACK
             for fb in self._fallbacks:
                 try:
-                    logger.info("Falling back to %s", fb.model)
-                    return await fb.chat(messages, temperature, max_tokens, response_format, call_timeout)
+                    logger.info("Falling back to %s (timeout=%ds)", fb.model, fallback_timeout)
+                    return await fb.chat(messages, temperature, max_tokens, response_format, fallback_timeout)
                 except RateLimitExhausted:
                     logger.warning("Fallback %s also rate-limited, trying next...", fb.model)
                     continue

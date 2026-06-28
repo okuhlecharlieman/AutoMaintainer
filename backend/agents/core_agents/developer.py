@@ -6,7 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 2
+MAX_RETRIES = 1
 
 
 class DeveloperAgent(BaseAgent):

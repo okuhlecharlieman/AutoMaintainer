@@ -53,6 +53,7 @@ export interface SystemStatus {
     auth_enabled: boolean;
     max_concurrent_pipelines: number;
     pipeline_timeout_seconds: number;
+    agent_timeouts?: Record<string, number>;
   };
   github: {
     configured: boolean;
@@ -200,6 +201,17 @@ export const api = {
     return fetchAPI('/system/agent-models', {
       method: 'PUT',
       body: JSON.stringify({ agent_models: agentModels }),
+    });
+  },
+
+  async getAgentTimeouts(): Promise<{ timeouts: Record<string, number>; limits: { min: number; max: number } }> {
+    return fetchAPI('/system/agent-timeouts');
+  },
+
+  async updateAgentTimeouts(timeouts: Record<string, number>): Promise<{ timeouts: Record<string, number>; limits: { min: number; max: number } }> {
+    return fetchAPI('/system/agent-timeouts', {
+      method: 'PUT',
+      body: JSON.stringify({ timeouts }),
     });
   },
 };

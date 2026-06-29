@@ -47,6 +47,18 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("Failed to load runtime agent-model settings: %s", e)
 
+    # Load runtime agent-timeout overrides from database
+    try:
+        async with async_session() as session:
+            row = await session.get(RuntimeSettingsORM, "agent_timeouts")
+            if row:
+                timeout_overrides = json.loads(row.value)
+                # Convert string keys back to int values
+                orchestration_engine.set_timeouts({k: int(v) for k, v in timeout_overrides.items()})
+                logger.info("Loaded persisted agent-timeout overrides: %s", timeout_overrides)
+    except Exception as e:
+        logger.warning("Failed to load runtime agent-timeout settings: %s", e)
+
     yield
 
     logger.info("AutoMaintainer API shutting down...")

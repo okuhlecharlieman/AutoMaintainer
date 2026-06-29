@@ -57,6 +57,7 @@ class OrchestrationEngine:
         self._running: Dict[str, asyncio.Task] = {}
         self._concurrency_semaphore: Optional[asyncio.Semaphore] = None
         self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
+        self._runtime_timeouts: Dict[str, int] = {}
 
     _STATUS_TO_ROLE = {
         "analyzing": "issue_analyst",
@@ -68,12 +69,43 @@ class OrchestrationEngine:
         "documenting": "documentation",
     }
 
+    TIMEOUT_LIMITS = {"min": 30, "max": 900}
+
     def _agent_timeout(self, role: AgentRole) -> int:
         """Get the timeout in seconds for a given agent role."""
+        runtime = self._runtime_timeouts.get(role.value)
+        if runtime is not None:
+            return runtime
         settings = get_settings()
         if role == AgentRole.DEVELOPER:
             return settings.agent_timeout_developer
         return settings.agent_timeout_default
+
+    def get_timeouts(self) -> Dict[str, int]:
+        """Get effective timeout for each agent role."""
+        settings = get_settings()
+        roles = ["issue_analyst", "architect", "developer", "qa_tester", "security", "reviewer", "documentation"]
+        result = {}
+        for role in roles:
+            runtime = self._runtime_timeouts.get(role)
+            if runtime is not None:
+                result[role] = runtime
+            elif role == "developer":
+                result[role] = settings.agent_timeout_developer
+            else:
+                result[role] = settings.agent_timeout_default
+        return result
+
+    def set_timeouts(self, overrides: Dict[str, int]) -> Dict[str, int]:
+        """Update runtime timeout overrides. Returns effective timeouts."""
+        for role, seconds in overrides.items():
+            if seconds < self.TIMEOUT_LIMITS["min"] or seconds > self.TIMEOUT_LIMITS["max"]:
+                raise ValueError(
+                    f"Timeout for '{role}' must be between "
+                    f"{self.TIMEOUT_LIMITS['min']}s and {self.TIMEOUT_LIMITS['max']}s, got {seconds}s"
+                )
+            self._runtime_timeouts[role] = seconds
+        return self.get_timeouts()
 
     def _model_label(self, status_value: str) -> str:
         """Get the model alias + slug for the agent running at a given pipeline status."""

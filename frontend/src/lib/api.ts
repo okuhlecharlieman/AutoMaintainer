@@ -53,6 +53,7 @@ export interface SystemStatus {
     auth_enabled: boolean;
     max_concurrent_pipelines: number;
     pipeline_timeout_seconds: number;
+    agent_timeouts?: Record<string, number>;
   };
   github: {
     configured: boolean;
@@ -91,6 +92,7 @@ export const api = {
     issue_number: number;
     issue_title: string;
     issue_body: string;
+    custom_instructions?: string;
   }): Promise<{ pipeline_id: string; status: string }> {
     return fetchAPI('/pipelines/start', {
       method: 'POST',
@@ -138,9 +140,10 @@ export const api = {
     });
   },
 
-  async retryPipeline(id: string): Promise<{ pipeline_id: string; status: string }> {
+  async retryPipeline(id: string, customInstructions?: string): Promise<{ pipeline_id: string; status: string }> {
     return fetchAPI(`/pipelines/${id}/retry`, {
       method: 'POST',
+      body: JSON.stringify({ custom_instructions: customInstructions || '' }),
     });
   },
 
@@ -198,6 +201,17 @@ export const api = {
     return fetchAPI('/system/agent-models', {
       method: 'PUT',
       body: JSON.stringify({ agent_models: agentModels }),
+    });
+  },
+
+  async getAgentTimeouts(): Promise<{ timeouts: Record<string, number>; limits: { min: number; max: number } }> {
+    return fetchAPI('/system/agent-timeouts');
+  },
+
+  async updateAgentTimeouts(timeouts: Record<string, number>): Promise<{ timeouts: Record<string, number>; limits: { min: number; max: number } }> {
+    return fetchAPI('/system/agent-timeouts', {
+      method: 'PUT',
+      body: JSON.stringify({ timeouts }),
     });
   },
 };

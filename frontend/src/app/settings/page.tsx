@@ -29,21 +29,31 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalModels, setOriginalModels] = useState<Record<string, string>>({});
+  const [agentTimeouts, setAgentTimeouts] = useState<Record<string, number>>({});
+  const [originalTimeouts, setOriginalTimeouts] = useState<Record<string, number>>({});
+  const [timeoutLimits, setTimeoutLimits] = useState<{ min: number; max: number }>({ min: 30, max: 900 });
+  const [savingTimeouts, setSavingTimeouts] = useState(false);
+  const [hasTimeoutChanges, setHasTimeoutChanges] = useState(false);
   const { toast } = useToast();
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [statusData, agentData] = await Promise.all([
+      const [statusData, agentData, timeoutData] = await Promise.all([
         api.getSystemStatus(),
         api.getAgentModels(),
+        api.getAgentTimeouts(),
       ]);
       setStatus(statusData);
       setAgentModels(agentData.agent_models);
       setOriginalModels(agentData.agent_models);
       setAvailableModels(agentData.available_models);
       setHasChanges(false);
+      setAgentTimeouts(timeoutData.timeouts);
+      setOriginalTimeouts(timeoutData.timeouts);
+      setTimeoutLimits(timeoutData.limits);
+      setHasTimeoutChanges(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setError(msg);
@@ -82,6 +92,42 @@ export default function SettingsPage() {
   const handleReset = () => {
     setAgentModels(originalModels);
     setHasChanges(false);
+  };
+
+  const handleTimeoutChange = (role: string, value: number) => {
+    const updated = { ...agentTimeouts, [role]: value };
+    setAgentTimeouts(updated);
+    setHasTimeoutChanges(JSON.stringify(updated) !== JSON.stringify(originalTimeouts));
+  };
+
+  const handleSaveTimeouts = async () => {
+    setSavingTimeouts(true);
+    try {
+      const result = await api.updateAgentTimeouts(agentTimeouts);
+      setAgentTimeouts(result.timeouts);
+      setOriginalTimeouts(result.timeouts);
+      setHasTimeoutChanges(false);
+      toast('Agent timeouts saved', 'success');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to save';
+      toast(msg, 'error');
+    } finally {
+      setSavingTimeouts(false);
+    }
+  };
+
+  const handleResetTimeouts = () => {
+    setAgentTimeouts(originalTimeouts);
+    setHasTimeoutChanges(false);
+  };
+
+  const formatTimeout = (seconds: number) => {
+    if (seconds >= 60) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+    }
+    return `${seconds}s`;
   };
 
   return (
@@ -179,7 +225,7 @@ export default function SettingsPage() {
                       >
                         {availableModels.map((model) => (
                           <option key={model.alias} value={model.alias}>
-                            {model.alias} ({model.model.split('/').pop()})
+                            {model.alias} ({model.model})
                           </option>
                         ))}
                       </select>
@@ -194,12 +240,72 @@ export default function SettingsPage() {
                       {availableModels.map((model) => (
                         <span key={model.alias} className="text-xs px-2 py-1 bg-am-darker border border-am-border/50 rounded text-gray-400 font-mono">
                           {model.alias}
-                          <span className="text-am-muted ml-1">— {model.model.split('/').pop()}</span>
+                          <span className="text-am-muted ml-1">— {model.model}</span>
                         </span>
                       ))}
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Agent Timeout Configuration */}
+              <div className="bg-am-card rounded-xl border border-am-border p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                      <Clock size={20} className="text-amber-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-white font-semibold">Agent Timeout Configuration</h3>
+                      <span className="text-xs text-am-muted">
+                        Set how long each agent can run before timing out ({timeoutLimits.min}s – {timeoutLimits.max}s)
+                      </span>
+                    </div>
+                  </div>
+                  {hasTimeoutChanges && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleResetTimeouts}
+                        className="px-3 py-1.5 text-sm text-gray-400 hover:text-white transition"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveTimeouts}
+                        disabled={savingTimeouts}
+                        className="px-4 py-1.5 bg-am-accent hover:bg-am-accent/80 text-white text-sm font-medium rounded-lg transition flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {savingTimeouts ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                        Save Timeouts
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  {AGENT_ROLES.map(({ key, label, description }) => (
+                    <div key={key} className="flex items-center justify-between p-3 bg-am-dark rounded-lg border border-am-border/50">
+                      <div className="min-w-0">
+                        <p className="text-sm text-white font-medium">{label}</p>
+                        <p className="text-xs text-am-muted">{description}</p>
+                      </div>
+                      <div className="flex items-center gap-3 ml-4">
+                        <input
+                          type="range"
+                          min={timeoutLimits.min}
+                          max={timeoutLimits.max}
+                          step={30}
+                          value={agentTimeouts[key] || 120}
+                          onChange={(e) => handleTimeoutChange(key, parseInt(e.target.value))}
+                          className="w-32 accent-am-accent"
+                        />
+                        <span className="text-sm text-amber-400 font-mono min-w-[60px] text-right">
+                          {formatTimeout(agentTimeouts[key] || 120)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="grid gap-6 md:grid-cols-2">

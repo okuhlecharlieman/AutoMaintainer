@@ -62,6 +62,7 @@ export interface PipelineRun {
   pr_url?: string;
   pr_title?: string;
   pr_body?: string;
+  custom_instructions?: string;
   created_at: string;
   updated_at: string;
   error_message?: string;

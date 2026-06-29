@@ -55,6 +55,7 @@ class StartPipelineRequest(BaseModel):
     issue_number: int = Field(..., ge=1)
     issue_title: str = Field(..., min_length=1, max_length=1024)
     issue_body: str = Field(default="", max_length=65536)
+    custom_instructions: str = Field(default="", max_length=8192)
 
     @field_validator("repo_url", "issue_url")
     @classmethod
@@ -131,6 +132,7 @@ async def start_pipeline(request: StartPipelineRequest, auth_info: dict = Depend
             issue_number=request.issue_number,
             issue_title=request.issue_title,
             issue_body=request.issue_body,
+            custom_instructions=request.custom_instructions,
             github_token=github_token,
         )
     except ValueError as e:
@@ -149,6 +151,7 @@ async def start_demo_pipeline(request: DemoPipelineRequest, auth_info: dict = De
             issue_number=request.issue_number,
             issue_title=request.issue_title,
             issue_body=request.issue_body,
+            custom_instructions="",
             github_token=github_token,
         )
     except ValueError as e:
@@ -226,15 +229,20 @@ async def delete_pipeline(pipeline_id: str):
     return {"deleted": True}
 
 
+class RetryPipelineRequest(BaseModel):
+    custom_instructions: str = Field(default="", max_length=8192)
+
+
 @router.post("/pipelines/{pipeline_id}/retry", status_code=201)
-async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api_key)):
-    """Retry a failed pipeline by creating a new one with the same parameters."""
+async def retry_pipeline(pipeline_id: str, body: Optional[RetryPipelineRequest] = None, auth_info: dict = Depends(require_api_key)):
+    """Retry a failed pipeline, optionally with new/updated instructions."""
     pipeline = orchestration_engine.get_pipeline(pipeline_id)
     if not pipeline:
         raise HTTPException(status_code=404, detail="Pipeline not found")
     if pipeline.status.value not in ("failed", "rejected"):
         raise HTTPException(status_code=400, detail="Only failed or rejected pipelines can be retried")
     github_token = await _resolve_user_token(auth_info)
+    instructions = (body.custom_instructions if body else "") or pipeline.custom_instructions
     try:
         new_pipeline = await orchestration_engine.start_pipeline(
             repo_url=pipeline.repo_url,
@@ -242,6 +250,7 @@ async def retry_pipeline(pipeline_id: str, auth_info: dict = Depends(require_api
             issue_number=pipeline.issue_number,
             issue_title=pipeline.issue_title,
             issue_body=pipeline.issue_body,
+            custom_instructions=instructions,
             github_token=github_token,
         )
     except ValueError as e:
@@ -366,6 +375,7 @@ async def system_status():
             "auth_enabled": settings.auth_enabled,
             "max_concurrent_pipelines": settings.max_concurrent_pipelines,
             "pipeline_timeout_seconds": settings.pipeline_timeout_seconds,
+            "agent_timeouts": orchestration_engine.get_timeouts(),
         },
         "github": {
             "configured": bool(settings.github_token),
@@ -423,6 +433,48 @@ async def update_agent_models(body: AgentModelsUpdate, auth_info: dict = Depends
         logger.warning("Failed to persist agent model settings: %s", e)
 
     return {"agent_models": effective, "available_models": llm_registry.list_models()}
+
+
+# ── Agent timeout configuration ─────────────────────────────────────────────
+
+class AgentTimeoutsUpdate(BaseModel):
+    timeouts: Dict[str, int] = Field(
+        ...,
+        description="Mapping of agent role to timeout in seconds",
+        json_schema_extra={"example": {"developer": 420, "architect": 180}},
+    )
+
+
+@router.get("/system/agent-timeouts")
+async def get_agent_timeouts(auth_info: dict = Depends(require_api_key)):
+    """Get current agent timeout settings."""
+    return {
+        "timeouts": orchestration_engine.get_timeouts(),
+        "limits": orchestration_engine.TIMEOUT_LIMITS,
+    }
+
+
+@router.put("/system/agent-timeouts")
+async def update_agent_timeouts(body: AgentTimeoutsUpdate, auth_info: dict = Depends(require_api_key)):
+    """Update agent timeout values. Persists across restarts."""
+    try:
+        effective = orchestration_engine.set_timeouts(body.timeouts)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Persist to database
+    try:
+        async with async_session() as session:
+            row = await session.get(RuntimeSettingsORM, "agent_timeouts")
+            if row:
+                row.value = json.dumps(orchestration_engine._runtime_timeouts)
+            else:
+                session.add(RuntimeSettingsORM(key="agent_timeouts", value=json.dumps(orchestration_engine._runtime_timeouts)))
+            await session.commit()
+    except Exception as e:
+        logger.warning("Failed to persist agent timeout settings: %s", e)
+
+    return {"timeouts": effective, "limits": orchestration_engine.TIMEOUT_LIMITS}
 
 
 # ── Admin endpoints ─────────────────────────────────────────────────────────

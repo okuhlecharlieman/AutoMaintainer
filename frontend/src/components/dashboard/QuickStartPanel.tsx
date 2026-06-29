@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/common/Toast';
-import { Rocket, Settings, Loader2, X, ExternalLink, Link as LinkIcon, CheckCircle, Github } from 'lucide-react';
+import { Rocket, Settings, Loader2, X, ExternalLink, Link as LinkIcon, CheckCircle, Github, MessageSquare } from 'lucide-react';
 
 interface Props {
   onPipelineStarted: () => void;
@@ -30,6 +30,7 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
     issue_number: 1,
     issue_title: '',
     issue_body: '',
+    custom_instructions: '',
   });
 
   useEffect(() => {
@@ -93,6 +94,7 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
         issue_number: formData.issue_number,
         issue_title: formData.issue_title.trim(),
         issue_body: formData.issue_body,
+        custom_instructions: formData.custom_instructions,
       });
       toast('Pipeline started successfully!', 'success');
       setShowCustom(false);
@@ -246,7 +248,19 @@ export default function QuickStartPanel({ onPipelineStarted }: Props) {
                   placeholder="Describe the issue..."
                   value={formData.issue_body}
                   onChange={(e) => setFormData({ ...formData, issue_body: e.target.value })}
-                  rows={4}
+                  rows={3}
+                  className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent resize-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+                  <MessageSquare size={12} /> Custom Instructions <span className="text-am-muted">(optional)</span>
+                </label>
+                <textarea
+                  placeholder="e.g. Use React instead of vanilla JS, focus on mobile responsive, keep changes minimal..."
+                  value={formData.custom_instructions}
+                  onChange={(e) => setFormData({ ...formData, custom_instructions: e.target.value })}
+                  rows={2}
                   className="w-full px-4 py-2.5 bg-am-dark border border-am-border rounded-lg text-white placeholder-am-muted text-sm focus:outline-none focus:border-am-accent resize-none transition-colors"
                 />
               </div>

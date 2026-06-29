@@ -131,6 +131,7 @@ class PipelineRun(BaseModel):
     issue_number: int
     issue_title: str
     issue_body: str = ""
+    custom_instructions: str = ""
     status: PipelineStatus = PipelineStatus.PENDING
     agent_messages: List[AgentMessage] = Field(default_factory=list)
     analysis: Optional[IssueAnalysis] = None

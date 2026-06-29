@@ -42,6 +42,7 @@ Respond with JSON:
     "reasoning": "architectural reasoning"
 }}"""
 
+        arch_prompt = self._inject_custom_instructions(arch_prompt, context)
         result = await self.analyze(arch_prompt)
 
         message = self.create_message(

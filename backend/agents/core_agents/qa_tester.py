@@ -75,6 +75,7 @@ Provide your response as JSON:
     "recommendations": ["recommendation 1"]
 }}"""
 
+        qa_prompt = self._inject_custom_instructions(qa_prompt, context)
         result = await self.analyze(qa_prompt)
 
         test_results: List[TestResult] = []

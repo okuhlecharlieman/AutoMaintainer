@@ -75,6 +75,7 @@ Provide your analysis as JSON with this structure:
     "reasoning": "your reasoning for the classification"
 }}"""
 
+        analysis_prompt = self._inject_custom_instructions(analysis_prompt, context)
         result = await self.analyze(analysis_prompt)
 
         analysis = IssueAnalysis(

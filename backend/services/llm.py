@@ -365,6 +365,15 @@ class LLMRegistry:
                 result[role] = settings.get_agent_model(role)
         return result
 
+    def resolve_model_for_role(self, agent_role: str) -> str:
+        """Return a human-readable 'alias (model_slug)' string for the agent's current model."""
+        models = self.get_agent_models()
+        alias = models.get(agent_role, "unknown")
+        client = self._clients.get(alias)
+        if client:
+            return f"{alias} ({client.model})"
+        return alias
+
     def set_agent_models(self, overrides: Dict[str, str]) -> Dict[str, str]:
         """Update runtime agent-model assignments. Returns the effective assignments."""
         valid_aliases = set(self._clients.keys())

@@ -31,6 +31,7 @@ from models import (
     TestResult,
 )
 from models.orm import PipelineORM, orm_to_pipeline, pipeline_to_orm
+from services.llm import llm_registry
 from services.memory import memory_service
 
 logger = logging.getLogger(__name__)
@@ -57,12 +58,29 @@ class OrchestrationEngine:
         self._concurrency_semaphore: Optional[asyncio.Semaphore] = None
         self._event_subscribers: Dict[str, List[asyncio.Queue]] = {}
 
+    _STATUS_TO_ROLE = {
+        "analyzing": "issue_analyst",
+        "planning": "architect",
+        "developing": "developer",
+        "testing": "qa_tester",
+        "security_scan": "security",
+        "reviewing": "reviewer",
+        "documenting": "documentation",
+    }
+
     def _agent_timeout(self, role: AgentRole) -> int:
         """Get the timeout in seconds for a given agent role."""
         settings = get_settings()
         if role == AgentRole.DEVELOPER:
             return settings.agent_timeout_developer
         return settings.agent_timeout_default
+
+    def _model_label(self, status_value: str) -> str:
+        """Get the model alias + slug for the agent running at a given pipeline status."""
+        role = self._STATUS_TO_ROLE.get(status_value, "")
+        if role:
+            return llm_registry.resolve_model_for_role(role)
+        return "unknown"
 
     async def _learn_from_failure(self, pipeline: PipelineRun, context: Dict[str, Any], error: str):
         """Learn from pipeline failures so future retries are smarter."""
@@ -436,12 +454,14 @@ class OrchestrationEngine:
                 ))
 
                 if not code_changes:
-                    logger.error("Pipeline %s: Developer produced no code changes after retries", pipeline.id)
+                    dev_model = self._model_label("developing")
+                    logger.error("Pipeline %s: Developer produced no code changes after retries (model: %s)", pipeline.id, dev_model)
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error_message = (
-                        "Developer agent failed to generate code changes. "
-                        "The LLM may not have returned valid file modifications. "
-                        "Try retrying the pipeline or providing more specific issue details."
+                        f"Developer agent failed to generate code changes. "
+                        f"Model used: {dev_model}. "
+                        f"The LLM may not have returned valid file modifications. "
+                        f"Try retrying the pipeline or providing more specific issue details."
                     )
                     await self._persist_pipeline(pipeline)
                     await self._emit_event(PipelineEvent(
@@ -583,11 +603,12 @@ class OrchestrationEngine:
 
             except (asyncio.TimeoutError, TimeoutError) as e:
                 agent_name = pipeline.status.value
+                model_used = self._model_label(agent_name)
                 timeout_used = self._agent_timeout(AgentRole.DEVELOPER) if "develop" in agent_name.lower() else get_settings().agent_timeout_default
-                logger.error("Pipeline %s: agent timed out at %s after %ds", pipeline.id, agent_name, timeout_used)
+                logger.error("Pipeline %s: agent timed out at %s after %ds (model: %s)", pipeline.id, agent_name, timeout_used, model_used)
                 pipeline.failed_at_status = pipeline.status.value
                 pipeline.status = PipelineStatus.FAILED
-                pipeline.error_message = f"Agent timed out at {agent_name} stage (>{timeout_used}s). The LLM may be overloaded — try again later or use a different model."
+                pipeline.error_message = f"Agent timed out at {agent_name} stage (>{timeout_used}s). Model used: {model_used}. The LLM may be overloaded — try again later or use a different model."
                 pipeline.updated_at = _now()
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(
@@ -598,10 +619,13 @@ class OrchestrationEngine:
                 await self._learn_from_failure(pipeline, context, f"timeout at {agent_name}")
 
             except Exception as e:
-                logger.error("Pipeline %s failed: %s", pipeline.id, e, exc_info=True)
+                agent_name = pipeline.status.value
+                model_used = self._model_label(agent_name)
+                logger.error("Pipeline %s failed: %s (model: %s)", pipeline.id, e, model_used, exc_info=True)
                 pipeline.failed_at_status = pipeline.status.value
                 pipeline.status = PipelineStatus.FAILED
-                pipeline.error_message = str(e)
+                error_str = str(e)
+                pipeline.error_message = f"{error_str} [Model: {model_used}]"
                 pipeline.updated_at = _now()
                 await self._persist_pipeline(pipeline)
                 await self._emit_event(PipelineEvent(

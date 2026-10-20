@@ -60,7 +60,10 @@ class Settings(BaseSettings):
     admin_password: str = ""  # Must be set when auth_enabled=True
 
     # ── Sandbox ────────────────────────────────────────────────────────
-    sandbox_enabled: bool = True
+    sandbox_enabled: bool = False
+    sandbox_image: str = ""  # Operator-built image with repository dependencies installed.
+    sandbox_test_command: str = '["python", "-m", "pytest", "-q"]'
+    sandbox_workdir: str = "."
     sandbox_timeout: int = Field(default=30, ge=5, le=300)
 
     # ── Server ─────────────────────────────────────────────────────────

@@ -31,7 +31,7 @@ function formatStepDuration(ms: number): string {
 const STATUS_ORDER: PipelineStatus[] = [
   'pending', 'analyzing', 'planning', 'developing', 'testing',
   'security_scan', 'reviewing', 'documenting', 'awaiting_approval',
-  'approved', 'merged', 'rejected', 'failed',
+  'approved', 'merged', 'pr_created', 'rejected', 'failed',
 ];
 
 export default function PipelineTimeline({ pipeline }: Props) {
@@ -64,7 +64,7 @@ export default function PipelineTimeline({ pipeline }: Props) {
       if (stepIndex === failedAtIndex) return 'failed';
       return 'pending';
     }
-    if (pipeline.status === 'merged' || pipeline.status === 'approved') return 'completed';
+    if (pipeline.status === 'pr_created' || pipeline.status === 'approved') return 'completed';
     if (pipeline.status === 'rejected') {
       if (stepIndex < STATUS_ORDER.indexOf('awaiting_approval')) return 'completed';
       return 'rejected';

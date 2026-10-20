@@ -22,9 +22,7 @@ Your responsibilities:
 4. Handle edge cases appropriately
 5. Follow the principle of minimal changes - only modify what's necessary
 
-CRITICAL: You MUST always produce at least one code change. If you are unsure what to change,
-make your best effort based on the analysis and architecture plan provided. Never return an
-empty changes array.
+If context is insufficient, return an empty changes array and explain the blocker. Never invent existing file contents.
 
 You always respond with valid JSON containing the code changes."""
 
@@ -56,15 +54,13 @@ You always respond with valid JSON containing the code changes."""
 
         existing_code = ""
         if file_contents:
-            # Limit each file to 3000 chars to avoid bloating the prompt
-            trimmed = []
-            for path, content in list(file_contents.items())[:5]:
-                if len(content) > 3000:
-                    content = content[:3000] + "\n... (truncated)"
-                trimmed.append(f"### {path}\n```\n{content}\n```")
-            existing_code = "\n\n".join(trimmed)
+            if sum(len(c) for c in file_contents.values()) > 240_000:
+                raise ValueError("Relevant files exceed context budget; narrow the issue before generating changes")
+            existing_code = "\n\n".join(
+                f"### {path}\n```\n{content}\n```" for path, content in file_contents.items()
+            )
         else:
-            existing_code = "(No existing file contents were fetched. Generate new file contents based on the analysis and architecture plan.)"
+            existing_code = "(No existing files. Only create explicitly requested new files.)"
 
         memory_context = ""
         if memory:
@@ -99,9 +95,9 @@ You always respond with valid JSON containing the code changes."""
                     retry_prompt = (
                         f"{dev_prompt}\n\n"
                         f"IMPORTANT: Previous attempt {attempt} produced no code changes. "
-                        f"You MUST produce at least one file change. "
+                        f"Only produce changes supported by the supplied complete files. "
                         f"Based on the issue analysis, implement the changes to the affected files listed above. "
-                        f"If you cannot fetch file contents, create new or modified file content based on the requirements."
+                        f"If context is missing, explain the blocker instead of guessing."
                     )
                     result = await self.analyze(retry_prompt, max_tokens=16384, call_timeout=LLM_CALL_TIMEOUT_DEVELOPER)
                 else:
@@ -137,6 +133,11 @@ You always respond with valid JSON containing the code changes."""
                 "Developer agent failed to produce code changes after %d attempts for pipeline %s. Last error: %s",
                 MAX_RETRIES + 1, pipeline.id, last_error,
             )
+
+        from services.change_validation import validate_changes
+        if sum(len(c.new_content) for c in code_changes) > 240_000:
+            raise ValueError("Generated changes exceed review context budget")
+        validate_changes(code_changes, file_contents, context.get("file_paths", set()))
 
         changes_summary = "\n".join([
             f"- **{c.change_type}** `{c.file_path}`" for c in code_changes
@@ -177,9 +178,9 @@ You always respond with valid JSON containing the code changes."""
 1. Analyze the issue and existing code carefully
 2. Implement the MINIMAL changes needed — only modify what is necessary
 3. Follow the repository's existing code style and patterns
-4. You MUST produce at least one code change — never return an empty changes array
-5. Keep responses CONCISE — do not generate unnecessarily large files
-6. For large files, only include the changed portions with enough context
+4. Return an empty changes array with an explanation if the fix cannot be safely determined
+5. Always return the COMPLETE content of each changed file
+6. Never use placeholders, ellipses, or omitted unchanged sections
 
 Respond with JSON (and ONLY JSON, no markdown fences):
 {{

@@ -28,7 +28,7 @@ Always respond in valid JSON format."""
         security_findings = context.get("security_findings", [])
 
         changes_desc = "\n\n".join([
-            f"### {c.file_path} ({c.change_type})\n```{c.language or ''}\n{c.new_content[:2000]}\n```"
+            f"### {c.file_path} ({c.change_type})\n```{c.language or ''}\n{c.new_content}\n```"
             for c in code_changes
         ])
 

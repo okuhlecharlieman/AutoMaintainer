@@ -1,3 +1,5 @@
+from urllib.parse import urlparse, quote
+import re
 import httpx
 from typing import Dict, Any, Optional, List
 from core.config import get_settings
@@ -46,35 +48,37 @@ class GitHubClient:
             response.raise_for_status()
             return response.json()
 
-    async def get_file_tree(self, owner: str, repo: str, token: Optional[str] = None) -> List[Dict[str, Any]]:
-        headers = self._headers(token)
+    async def get_branch_sha(self, owner, repo, branch, token=None):
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
-                f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/main?recursive=1",
-                headers=headers,
-            )
-            if response.status_code == 404:
-                response = await client.get(
-                    f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/master?recursive=1",
-                    headers=headers,
-                )
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{quote(branch, safe='')}",
+                headers=self._headers(token))
             response.raise_for_status()
-            return response.json().get("tree", [])
+            return response.json()["object"]["sha"]
 
-    async def get_file_content(self, owner: str, repo: str, path: str, ref: str = "main", token: Optional[str] = None) -> Optional[str]:
+    async def get_file_tree(self, owner, repo, token=None, ref=None):
+        if ref is None:
+            ref = (await self.get_repo_info(owner, repo, token))["default_branch"]
+        async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+            response = await client.get(
+                f"{self.BASE_URL}/repos/{owner}/{repo}/git/trees/{quote(ref, safe='')}?recursive=1",
+                headers=self._headers(token))
+            response.raise_for_status()
+            data = response.json()
+            if data.get("truncated"):
+                raise ValueError("Repository tree is incomplete; narrow repository scope")
+            return data.get("tree", [])
+
+    async def get_file_content(self, owner, repo, path, ref=None, token=None):
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
             response = await client.get(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/contents/{path}",
-                headers=self._headers(token),
-                params={"ref": ref},
-            )
-            if response.status_code == 200:
-                data = response.json()
-                if data.get("encoding") == "base64":
-                    import base64
-                    return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-                return data.get("content", "")
-            return None
+                headers=self._headers(token), params={"ref": ref} if ref else {})
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict) or data.get("encoding") != "base64":
+                raise ValueError(f"Cannot read complete text file: {path}")
+            return base64.b64decode(data["content"]).decode("utf-8")
 
     async def create_pull_request(
         self,
@@ -100,35 +104,14 @@ class GitHubClient:
             response.raise_for_status()
             return response.json()
 
-    async def create_branch(self, owner: str, repo: str, branch_name: str, from_ref: str = "main", token: Optional[str] = None) -> Dict[str, Any]:
-        headers = self._headers(token)
+    async def create_branch(self, owner, repo, branch_name, from_ref="main", token=None, sha=None):
+        # Callers can pin the exact commit they analysed and tested.
+        sha = sha or await self.get_branch_sha(owner, repo, from_ref, token)
         async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
-            # Check if branch already exists — reuse it instead of creating (avoids 422)
-            existing = await client.get(
-                f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{branch_name}",
-                headers=headers,
-            )
-            if existing.status_code == 200:
-                return existing.json()
-
-            # Get the SHA of the base branch
-            ref_response = await client.get(
-                f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/{from_ref}",
-                headers=headers,
-            )
-            if ref_response.status_code == 404:
-                ref_response = await client.get(
-                    f"{self.BASE_URL}/repos/{owner}/{repo}/git/ref/heads/master",
-                    headers=headers,
-                )
-            ref_response.raise_for_status()
-            sha = ref_response.json()["object"]["sha"]
-
             response = await client.post(
                 f"{self.BASE_URL}/repos/{owner}/{repo}/git/refs",
-                headers=headers,
-                json={"ref": f"refs/heads/{branch_name}", "sha": sha},
-            )
+                headers=self._headers(token),
+                json={"ref": f"refs/heads/{branch_name}", "sha": sha})
             response.raise_for_status()
             return response.json()
 
@@ -138,7 +121,7 @@ class GitHubClient:
         repo: str,
         branch: str,
         message: str,
-        files: Dict[str, str],
+        files: Dict[str, Optional[str]],
         token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Commit multiple files atomically using the Git Trees API (single commit)."""
@@ -160,9 +143,17 @@ class GitHubClient:
             commit_resp.raise_for_status()
             base_tree_sha = commit_resp.json()["tree"]["sha"]
 
+            original_tree = await self.get_file_tree(owner, repo, token=token, ref=base_commit_sha)
+            modes = {item["path"]: item.get("mode", "100644") for item in original_tree}
+
             # 3. Create blobs for each file
             tree_items = []
             for path, content in files.items():
+                from services.change_validation import safe_path
+                safe_path(path)
+                if content is None:
+                    tree_items.append({"path": path, "mode": "100644", "type": "blob", "sha": None})
+                    continue
                 blob_resp = await client.post(
                     f"{self.BASE_URL}/repos/{owner}/{repo}/git/blobs",
                     headers=headers,
@@ -172,7 +163,7 @@ class GitHubClient:
                 blob_sha = blob_resp.json()["sha"]
                 tree_items.append({
                     "path": path,
-                    "mode": "100644",
+                    "mode": modes.get(path, "100644"),
                     "type": "blob",
                     "sha": blob_sha,
                 })
@@ -225,10 +216,13 @@ class GitHubClient:
             return response.json()
 
     def parse_repo_url(self, url: str) -> tuple[str, str]:
-        parts = url.rstrip("/").split("/")
-        if len(parts) >= 2:
-            return parts[-2], parts[-1]
-        raise ValueError(f"Invalid repo URL: {url}")
+        parsed = urlparse(url)
+        parts = parsed.path.strip("/").split("/")
+        if (parsed.scheme != "https" or parsed.netloc != "github.com"
+                or parsed.query or parsed.fragment or len(parts) != 2
+                or not all(re.fullmatch(r"[A-Za-z0-9_.-]+", p) and p not in (".", "..") for p in parts)):
+            raise ValueError("Use a repository URL of the form https://github.com/owner/repo")
+        return parts[0], parts[1].removesuffix(".git")
 
 
 github_client = GitHubClient()

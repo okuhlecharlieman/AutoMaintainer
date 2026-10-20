@@ -20,7 +20,7 @@ interface Props {
 
 export default function AgentStatusGrid({ pipelines }: Props) {
   const activePipelines = pipelines.filter((p) =>
-    !['merged', 'rejected', 'failed'].includes(p.status)
+    !['merged', 'pr_created', 'rejected', 'failed'].includes(p.status)
   );
 
   const agents = Object.entries(AGENT_CONFIG) as [AgentRole, typeof AGENT_CONFIG[AgentRole]][];

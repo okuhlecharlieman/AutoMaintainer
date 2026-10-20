@@ -1,6 +1,6 @@
 export type AgentRole = 'issue_analyst' | 'architect' | 'developer' | 'qa_tester' | 'security' | 'documentation' | 'reviewer';
 
-export type PipelineStatus = 'pending' | 'analyzing' | 'planning' | 'developing' | 'testing' | 'security_scan' | 'reviewing' | 'documenting' | 'awaiting_approval' | 'approved' | 'rejected' | 'merged' | 'failed';
+export type PipelineStatus = 'pending' | 'analyzing' | 'planning' | 'developing' | 'testing' | 'security_scan' | 'reviewing' | 'documenting' | 'awaiting_approval' | 'approved' | 'rejected' | 'pr_created' | 'merged' | 'failed';
 
 export interface AgentMessage {
   id: string;
@@ -23,6 +23,7 @@ export interface CodeChange {
 export interface TestResult {
   test_name: string;
   passed: boolean;
+  executed: boolean;
   output: string;
   duration_ms?: number;
   error_message?: string;
@@ -116,6 +117,7 @@ export const STATUS_CONFIG: Record<PipelineStatus, { label: string; color: strin
   awaiting_approval: { label: 'Awaiting Approval', color: '#f59e0b', icon: 'Pause' },
   approved: { label: 'Approved', color: '#10b981', icon: 'CheckCircle' },
   rejected: { label: 'Rejected', color: '#ef4444', icon: 'XCircle' },
-  merged: { label: 'PR Created', color: '#10b981', icon: 'GitPullRequest' },
+  pr_created: { label: 'PR Created', color: '#10b981', icon: 'GitPullRequest' },
+  merged: { label: 'Merged', color: '#10b981', icon: 'GitPullRequest' },
   failed: { label: 'Failed', color: '#ef4444', icon: 'AlertTriangle' },
 };

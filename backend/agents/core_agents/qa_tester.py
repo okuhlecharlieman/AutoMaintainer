@@ -28,7 +28,7 @@ Always respond in valid JSON format."""
         test_framework = context.get("test_framework", "pytest")
 
         changes_desc = "\n\n".join([
-            f"### {c.file_path} ({c.change_type})\n```{c.language or ''}\n{c.new_content[:2000]}\n```"
+            f"### {c.file_path} ({c.change_type})\n```{c.language or ''}\n{c.new_content}\n```"
             for c in code_changes
         ])
 
@@ -60,15 +60,6 @@ Provide your response as JSON:
             "category": "unit|integration|edge_case"
         }}
     ],
-    "test_results": [
-        {{
-            "test_name": "test_name",
-            "passed": true,
-            "output": "test output or validation result",
-            "duration_ms": 42,
-            "error_message": null
-        }}
-    ],
     "coverage_assessment": "brief assessment of test coverage",
     "edge_cases_found": ["edge case 1"],
     "confidence": 0.85,
@@ -78,15 +69,17 @@ Provide your response as JSON:
         qa_prompt = self._inject_custom_instructions(qa_prompt, context)
         result = await self.analyze(qa_prompt)
 
-        test_results: List[TestResult] = []
-        for tr in result.get("test_results", []):
-            test_results.append(TestResult(
-                test_name=tr.get("test_name", "unknown"),
-                passed=tr.get("passed", False),
-                output=tr.get("output", ""),
-                duration_ms=tr.get("duration_ms"),
-                error_message=tr.get("error_message"),
-            ))
+        # Model output proposes tests; only the isolated runner provides results.
+        from services.sandbox import sandbox_executor
+        execution = await sandbox_executor.run_repository_tests(pipeline)
+        test_results = [TestResult(
+            test_name="repository_checks",
+            passed=execution.get("executed", False) and execution["success"],
+            executed=execution.get("executed", False),
+            output=execution.get("output", ""),
+            duration_ms=execution.get("duration_ms"),
+            error_message=None if execution["success"] else execution.get("output", "Checks failed"),
+        )]
 
         passed = sum(1 for t in test_results if t.passed)
         total = len(test_results)
@@ -98,13 +91,13 @@ Provide your response as JSON:
         ])
 
         results_desc = "\n".join([
-            f"- {'✅' if t.passed else '❌'} **{t.test_name}**: {t.output[:100]}"
+            f"- {'NOT RUN' if not t.executed else ('PASS' if t.passed else 'FAIL')} **{t.test_name}**: {t.output[:100]}"
             for t in test_results
         ])
 
         message = self.create_message(
-            content=f"**Test Generation & Validation Complete**\n\n"
-                    f"**Tests Generated:** {len(tests_list)}\n"
+            content=f"**Test Suggestions & Repository Check Results**\n\n"
+                    f"**Tests Proposed (not automatically executed):** {len(tests_list)}\n"
                     f"**Results:** {passed}/{total} passed\n\n"
                     f"**Tests:**\n{tests_desc}\n\n"
                     f"**Results:**\n{results_desc}\n\n"

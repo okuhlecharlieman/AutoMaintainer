@@ -20,8 +20,9 @@ export default function TestResultsPanel({ results }: Props) {
     );
   }
 
-  const passed = results.filter((r) => r.passed).length;
-  const failed = results.filter((r) => !r.passed).length;
+  const passed = results.filter((r) => r.executed && r.passed).length;
+  const failed = results.filter((r) => r.executed && !r.passed).length;
+  const notRun = results.filter((r) => !r.executed).length;
   const totalDuration = results.reduce((acc, r) => acc + (r.duration_ms || 0), 0);
 
   return (
@@ -33,7 +34,7 @@ export default function TestResultsPanel({ results }: Props) {
           </div>
           <div>
             <p className="text-white font-bold">{passed}/{results.length} Passed</p>
-            <p className="text-am-muted text-xs">{totalDuration}ms total</p>
+            <p className="text-am-muted text-xs">{totalDuration}ms total · {notRun} not run</p>
           </div>
         </div>
         <div className="flex-1 h-2 bg-am-dark rounded-full overflow-hidden">
@@ -53,16 +54,16 @@ export default function TestResultsPanel({ results }: Props) {
           <div
             key={idx}
             className={`bg-am-card rounded-lg border p-4 ${
-              result.passed ? 'border-am-success/20' : 'border-am-danger/20'
+              result.executed && result.passed ? 'border-am-success/20' : 'border-am-danger/20'
             }`}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <span className={result.passed ? 'text-am-success' : 'text-am-danger'}>
-                  {result.passed ? <CheckCircle size={18} /> : <XCircle size={18} />}
+                <span className={result.executed && result.passed ? 'text-am-success' : 'text-am-danger'}>
+                  {!result.executed ? <FlaskConical size={18} /> : result.passed ? <CheckCircle size={18} /> : <XCircle size={18} />}
                 </span>
                 <div>
-                  <p className="text-white text-sm font-medium font-mono">{result.test_name}</p>
+                  <p className="text-white text-sm font-medium font-mono">{result.test_name} — {!result.executed ? 'Not run' : result.passed ? 'Passed' : 'Failed'}</p>
                   {result.duration_ms && (
                     <p className="text-am-muted text-xs">{result.duration_ms}ms</p>
                   )}

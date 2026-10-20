@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import AsyncGenerator
 
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -38,6 +38,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Additive migration for existing installations. Legacy runs remain admin-only.
+        columns = await conn.run_sync(lambda c: {x["name"] for x in inspect(c).get_columns("pipelines")})
+        for name, sql_type in (("owner", "VARCHAR(256)"), ("base_branch", "VARCHAR(256)"), ("base_sha", "VARCHAR(64)")):
+            if name not in columns:
+                await conn.execute(text(f"ALTER TABLE pipelines ADD COLUMN {name} {sql_type}"))
+        # Historical 'merged' meant only that a PR had been created.
+        if "owner" not in columns:
+            await conn.execute(text("UPDATE pipelines SET status = 'pr_created' WHERE status = 'merged'"))
 
 
 async def check_db_health() -> bool:

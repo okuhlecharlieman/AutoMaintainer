@@ -11,6 +11,10 @@ from . import MemoryEntry, PipelineRun
 class PipelineORM(Base):
     __tablename__ = "pipelines"
 
+    owner: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    base_branch: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    base_sha: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     repo_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     issue_url: Mapped[str] = mapped_column(String(1024), nullable=False)
@@ -43,6 +47,9 @@ def pipeline_to_orm(pipeline: PipelineRun) -> PipelineORM:
 def orm_to_pipeline(orm: PipelineORM) -> PipelineRun:
     data = {
         "id": orm.id,
+        "owner": orm.owner,
+        "base_branch": orm.base_branch,
+        "base_sha": orm.base_sha,
         "repo_url": orm.repo_url,
         "issue_url": orm.issue_url,
         "issue_number": orm.issue_number,

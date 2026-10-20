@@ -120,7 +120,7 @@ class OrchestrationEngine:
             analysis = context.get("analysis")
             summary = analysis.summary if analysis else pipeline.issue_title
             await memory_service.learn(
-                pipeline.repo_url,
+                self._memory_key(pipeline),
                 f"Issue: {pipeline.issue_title}. Analysis: {summary}",
                 {
                     "status": "failed",
@@ -133,12 +133,13 @@ class OrchestrationEngine:
         except Exception as e:
             logger.warning("Failed to learn from pipeline failure: %s", e)
 
-    def _get_previous_attempts(self, repo_url: str, issue_number: int) -> List[Dict[str, Any]]:
+    def _get_previous_attempts(self, repo_url: str, issue_number: int, owner: Optional[str] = None) -> List[Dict[str, Any]]:
         """Find previous failed pipelines for the same issue to provide follow-up context."""
         attempts = []
         for p in self._pipelines.values():
             if (
-                p.repo_url == repo_url
+                p.owner == owner
+                and p.repo_url == repo_url
                 and p.issue_number == issue_number
                 and p.status == PipelineStatus.FAILED
             ):
@@ -152,6 +153,10 @@ class OrchestrationEngine:
                     ],
                 })
         return attempts[-3:]  # last 3 attempts
+
+    @staticmethod
+    def _memory_key(pipeline: PipelineRun) -> str:
+        return f"{pipeline.repo_url.rstrip('/')}#owner={pipeline.owner}"
 
     def subscribe(self, pipeline_id: str) -> asyncio.Queue:
         """Subscribe to real-time events for a pipeline."""
@@ -217,6 +222,7 @@ class OrchestrationEngine:
             pipeline = self._pipelines.get(pipeline_id)
             if pipeline and pipeline.status not in {
                 PipelineStatus.MERGED,
+                PipelineStatus.PR_CREATED,
                 PipelineStatus.REJECTED,
                 PipelineStatus.FAILED,
             }:
@@ -265,7 +271,7 @@ class OrchestrationEngine:
         pipeline = self._pipelines.get(pipeline_id)
         if not pipeline:
             raise ValueError(f"Pipeline {pipeline_id} not found")
-        terminal = {PipelineStatus.MERGED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
+        terminal = {PipelineStatus.MERGED, PipelineStatus.PR_CREATED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
         if pipeline.status in terminal:
             raise ValueError(f"Pipeline already in terminal state '{pipeline.status.value}'")
         task = self._running.pop(pipeline_id, None)
@@ -287,7 +293,7 @@ class OrchestrationEngine:
         pipeline = self._pipelines.get(pipeline_id)
         if not pipeline:
             raise ValueError(f"Pipeline {pipeline_id} not found")
-        terminal = {PipelineStatus.MERGED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
+        terminal = {PipelineStatus.MERGED, PipelineStatus.PR_CREATED, PipelineStatus.REJECTED, PipelineStatus.FAILED}
         if pipeline.status not in terminal:
             raise ValueError(f"Cannot delete pipeline in '{pipeline.status.value}' state. Only completed pipelines can be deleted.")
         # Cancel task if somehow still tracked
@@ -306,6 +312,7 @@ class OrchestrationEngine:
         status: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        owner: Optional[str] = None,
     ) -> List[PipelineRun]:
         """List pipelines, optionally filtered by status, with pagination."""
         all_pipelines = sorted(
@@ -313,6 +320,8 @@ class OrchestrationEngine:
             key=lambda p: p.created_at,
             reverse=True,
         )
+        if owner is not None:
+            all_pipelines = [p for p in all_pipelines if p.owner == owner]
         if status:
             all_pipelines = [p for p in all_pipelines if p.status.value == status]
         return all_pipelines[offset : offset + limit]
@@ -326,6 +335,7 @@ class OrchestrationEngine:
         issue_body: str = "",
         custom_instructions: str = "",
         github_token: Optional[str] = None,
+        owner: Optional[str] = None,
     ) -> PipelineRun:
         # Check concurrency limit
         if len(self._running) >= get_settings().max_concurrent_pipelines:
@@ -335,6 +345,7 @@ class OrchestrationEngine:
             )
 
         pipeline = PipelineRun(
+            owner=owner,
             repo_url=repo_url,
             issue_url=issue_url,
             issue_number=issue_number,
@@ -365,7 +376,7 @@ class OrchestrationEngine:
         token = pipeline.github_token
 
         # Inject follow-up context from previous failed attempts on the same issue
-        prev_attempts = self._get_previous_attempts(pipeline.repo_url, pipeline.issue_number)
+        prev_attempts = self._get_previous_attempts(pipeline.repo_url, pipeline.issue_number, pipeline.owner)
         if prev_attempts:
             context["previous_attempts"] = prev_attempts
             logger.info(
@@ -383,24 +394,19 @@ class OrchestrationEngine:
                     data={"phase": "context_gathering"},
                 ))
 
-                try:
-                    owner, repo = github_client.parse_repo_url(pipeline.repo_url)
-                    repo_info = await github_client.get_repo_info(owner, repo, token=token)
-                    context["repo_info"] = repo_info
+                owner, repo = github_client.parse_repo_url(pipeline.repo_url)
+                repo_info = await github_client.get_repo_info(owner, repo, token=token)
+                context["repo_info"] = repo_info
+                pipeline.base_branch = repo_info["default_branch"]
+                pipeline.base_sha = await github_client.get_branch_sha(owner, repo, pipeline.base_branch, token=token)
+                tree = await github_client.get_file_tree(owner, repo, token=token, ref=pipeline.base_sha)
+                context["file_paths"] = {t["path"] for t in tree if t["type"] == "blob"}
+                file_tree = "\n".join(t["path"] for t in tree)
+                if len(file_tree) > 120_000:
+                    raise ValueError("Repository tree exceeds context budget; narrow repository scope")
+                context["file_tree"] = file_tree
 
-                    tree = await github_client.get_file_tree(owner, repo, token=token)
-                    file_tree = "\n".join([
-                        f"{'📁 ' if t['type'] == 'tree' else '📄 '}{t['path']}"
-                        for t in tree[:200]
-                    ])
-                    context["file_tree"] = file_tree
-
-                except Exception as e:
-                    logger.warning("GitHub context fetch failed: %s", e)
-                    context["repo_info"] = {}
-                    context["file_tree"] = "Unable to fetch file tree"
-
-                context["memory"] = memory_service.recall(pipeline.repo_url)
+                context["memory"] = memory_service.recall(self._memory_key(pipeline))
 
                 # Phase 2: Issue Analysis
                 stage_start = time.perf_counter()
@@ -426,14 +432,10 @@ class OrchestrationEngine:
 
                 # Fetch affected file contents
                 context["file_contents"] = {}
-                try:
-                    owner, repo = github_client.parse_repo_url(pipeline.repo_url)
-                    for file_path in analysis.affected_files[:10]:
-                        content = await github_client.get_file_content(owner, repo, file_path, token=token)
-                        if content:
-                            context["file_contents"][file_path] = content
-                except Exception as e:
-                    logger.warning("Failed to fetch file contents: %s", e)
+                for file_path in analysis.affected_files:
+                    if file_path in context["file_paths"]:
+                        context["file_contents"][file_path] = await github_client.get_file_content(
+                            owner, repo, file_path, ref=pipeline.base_sha, token=token)
 
                 context["analysis"] = analysis
 
@@ -526,6 +528,9 @@ class OrchestrationEngine:
                     data={"tests_passed": sum(1 for t in qa_result["test_results"] if t.passed), "duration_ms": duration_ms},
                 ))
 
+                if not pipeline.test_results or any(not t.executed or not t.passed for t in pipeline.test_results):
+                    raise ValueError("Repository checks failed or were not executed; configure the worker or fix the reported failures")
+
                 # Phase 6: Security Scan
                 stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.SECURITY_SCAN
@@ -550,6 +555,10 @@ class OrchestrationEngine:
                     data={"findings": len(sec_result["security_findings"]), "duration_ms": duration_ms},
                 ))
 
+                if (sec_result.get("security_safe") is not True
+                        or any(f.severity.lower() in {"critical", "high"} for f in pipeline.security_findings)):
+                    raise ValueError("Security review blocked this change")
+
                 # Phase 7: Code Review
                 stage_start = time.perf_counter()
                 pipeline.status = PipelineStatus.REVIEWING
@@ -573,6 +582,8 @@ class OrchestrationEngine:
                     agent_role=AgentRole.REVIEWER,
                     data={"approved": review_result["approved"], "score": review_result["review_score"].overall, "duration_ms": duration_ms},
                 ))
+
+                self._validate_quality(pipeline)
 
                 # Phase 8: Documentation
                 stage_start = time.perf_counter()
@@ -612,7 +623,7 @@ class OrchestrationEngine:
 
                 # Learn from this pipeline
                 await memory_service.learn(
-                    pipeline.repo_url,
+                    self._memory_key(pipeline),
                     f"Issue: {pipeline.issue_title}. Analysis: {analysis.summary}",
                     {
                         "status": pipeline.status.value,
@@ -673,6 +684,20 @@ class OrchestrationEngine:
                 if pipeline.id in self._running:
                     del self._running[pipeline.id]
 
+    @staticmethod
+    def _validate_quality(pipeline: PipelineRun):
+        if not pipeline.test_results or any(not t.executed or not t.passed for t in pipeline.test_results):
+            raise ValueError("Approval blocked: repository checks failed or were not executed")
+        security = next((m for m in reversed(pipeline.agent_messages) if m.agent_role == AgentRole.SECURITY), None)
+        if (not security or security.metadata.get("safe") is not True
+                or any(f.severity.lower() in {"critical", "high"} for f in pipeline.security_findings)):
+            raise ValueError("Approval blocked: security review is missing or unsafe")
+        review = next((m for m in reversed(pipeline.agent_messages) if m.agent_role == AgentRole.REVIEWER), None)
+        if (not review or review.metadata.get("approved") is not True
+                or review.metadata.get("verdict") != "approved"
+                or review.metadata.get("critical_issues")):
+            raise ValueError("Approval blocked: reviewer requested changes or did not approve")
+
     async def approve_pipeline(self, pipeline_id: str, github_token: Optional[str] = None) -> PipelineRun:
         pipeline = self._pipelines.get(pipeline_id)
         if not pipeline:
@@ -685,6 +710,10 @@ class OrchestrationEngine:
         if not pipeline.code_changes:
             raise ValueError("Pipeline has no code changes to push — the developer agent likely failed to generate changes")
 
+        self._validate_quality(pipeline)
+        if not pipeline.base_sha or not pipeline.base_branch:
+            raise ValueError("Source commit is missing; rerun this legacy pipeline")
+
         pipeline.status = PipelineStatus.APPROVED
         await self._persist_pipeline(pipeline)
 
@@ -696,9 +725,13 @@ class OrchestrationEngine:
             short_id = pipeline.id[:8]
             branch_name = f"automaintainer/fix-{pipeline.issue_number}-{short_id}"
 
-            await github_client.create_branch(owner, repo, branch_name, token=token)
+            head = await github_client.get_branch_sha(owner, repo, pipeline.base_branch, token=token)
+            if head != pipeline.base_sha:
+                raise ValueError("Base branch changed since verification; rerun before opening a PR")
+            await github_client.create_branch(owner, repo, branch_name, token=token,
+                                              from_ref=pipeline.base_branch, sha=pipeline.base_sha)
 
-            files = {c.file_path: c.new_content for c in pipeline.code_changes}
+            files = {c.file_path: None if c.change_type == "delete" else c.new_content for c in pipeline.code_changes}
             commit_msg = f"fix: resolve #{pipeline.issue_number} - {pipeline.issue_title}"
             await github_client.commit_files(owner, repo, branch_name, commit_msg, files, token=token)
 
@@ -707,10 +740,11 @@ class OrchestrationEngine:
                 title=pipeline.pr_title or f"Fix #{pipeline.issue_number}: {pipeline.issue_title}",
                 body=pipeline.pr_body or f"Automated fix for #{pipeline.issue_number}",
                 head=branch_name,
+                base=pipeline.base_branch,
                 token=token,
             )
             pipeline.pr_url = pr.get("html_url", "")
-            pipeline.status = PipelineStatus.MERGED
+            pipeline.status = PipelineStatus.PR_CREATED
 
         except Exception as e:
             logger.error("Failed to create PR for pipeline %s: %s", pipeline_id, e, exc_info=True)
@@ -735,7 +769,7 @@ class OrchestrationEngine:
         pipeline.updated_at = _now()
         await self._persist_pipeline(pipeline)
 
-        event_type = "pipeline_approved" if pipeline.status == PipelineStatus.MERGED else "pipeline_failed"
+        event_type = "pipeline_approved" if pipeline.status == PipelineStatus.PR_CREATED else "pipeline_failed"
         await self._emit_event(PipelineEvent(
             pipeline_id=pipeline_id, event_type=event_type,
             data={"pr_url": pipeline.pr_url, "status": pipeline.status.value},
@@ -748,6 +782,8 @@ class OrchestrationEngine:
         if not pipeline:
             raise ValueError(f"Pipeline {pipeline_id} not found")
 
+        if pipeline.status != PipelineStatus.AWAITING_APPROVAL:
+            raise ValueError("Only a pipeline awaiting approval can be rejected")
         pipeline.status = PipelineStatus.REJECTED
         pipeline.updated_at = _now()
         await self._persist_pipeline(pipeline)

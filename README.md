@@ -2,6 +2,13 @@
 
 “An autonomous multi-agent software engineering system that transforms GitHub issues into production-ready pull requests with human-supervised deployment.”
 
+## Verification and safety
+
+See [Verified maintenance](docs/VERIFIED_MAINTENANCE.md) for required worker
+configuration and deployment changes. Tests are never simulated as passing.
+Opening PRs requires executed checks and explicit security/reviewer approval.
+A hosting deployment alone does not provide the isolated Docker worker.
+
 ## Deployment Options
 
 ### 🥇 Recommended: Render + UptimeRobot (100% Free, Reliable)

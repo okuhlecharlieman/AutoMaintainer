@@ -12,7 +12,7 @@ import { Search, Star, FileText, FlaskConical, Clock, Filter, GitBranch, Refresh
 const STATUS_FILTERS: { value: string; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'active', label: 'Active' },
-  { value: 'merged', label: 'PR Created' },
+  { value: 'pr_created', label: 'PR Created' },
   { value: 'failed', label: 'Failed' },
   { value: 'rejected', label: 'Rejected' },
 ];
@@ -52,8 +52,8 @@ export default function PipelinesPage() {
         `#${p.issue_number}`.includes(searchQuery);
 
       const matchesStatus = statusFilter === 'all' ||
-        (statusFilter === 'active' && !['merged', 'rejected', 'failed'].includes(p.status)) ||
-        (statusFilter === 'merged' && p.status === 'merged') ||
+        (statusFilter === 'active' && !['merged', 'pr_created', 'rejected', 'failed'].includes(p.status)) ||
+        (statusFilter === 'pr_created' && p.status === 'pr_created') ||
         (statusFilter === 'failed' && p.status === 'failed') ||
         (statusFilter === 'rejected' && p.status === 'rejected');
 

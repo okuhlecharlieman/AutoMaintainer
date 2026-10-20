@@ -140,7 +140,7 @@ export default function PipelineDetailPage() {
               )}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-              {!['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) && (
+              {!['failed', 'rejected', 'merged', 'pr_created', 'awaiting_approval'].includes(pipeline.status) && (
                 <button
                   onClick={async () => {
                     setActionLoading(true);
@@ -170,7 +170,7 @@ export default function PipelineDetailPage() {
                   <RotateCcw size={14} /> Retry
                 </button>
               )}
-              {['merged', 'rejected', 'failed'].includes(pipeline.status) && (
+              {['merged', 'pr_created', 'rejected', 'failed'].includes(pipeline.status) && (
                 <>
                   {showDeleteConfirm ? (
                     <div className="flex items-center gap-2">
@@ -304,10 +304,10 @@ export default function PipelineDetailPage() {
           <div className="min-h-[400px]">
             {activeTab === 'timeline' && (
               <div className="space-y-4">
-                {!['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) && (
+                {!['failed', 'rejected', 'merged', 'pr_created', 'awaiting_approval'].includes(pipeline.status) && (
                   <LiveActivityPanel pipelineId={pipeline.id} status={pipeline.status} />
                 )}
-                {pipeline.agent_messages.length === 0 && ['failed', 'rejected', 'merged', 'awaiting_approval'].includes(pipeline.status) ? (
+                {pipeline.agent_messages.length === 0 && ['failed', 'rejected', 'merged', 'pr_created', 'awaiting_approval'].includes(pipeline.status) ? (
                   <div className="glass rounded-xl p-8 text-center">
                     <p className="text-am-muted text-sm">No agent messages recorded</p>
                   </div>

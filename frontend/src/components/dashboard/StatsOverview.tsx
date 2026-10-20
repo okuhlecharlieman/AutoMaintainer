@@ -9,8 +9,8 @@ interface Props {
 
 export default function StatsOverview({ pipelines }: Props) {
   const total = pipelines.length;
-  const merged = pipelines.filter((p) => p.status === 'merged').length;
-  const active = pipelines.filter((p) => !['merged', 'rejected', 'failed'].includes(p.status)).length;
+  const merged = pipelines.filter((p) => p.status === 'pr_created').length;
+  const active = pipelines.filter((p) => !['merged', 'pr_created', 'rejected', 'failed'].includes(p.status)).length;
   const avgScore = pipelines.reduce((acc, p) => acc + (p.review_score || 0), 0) / (total || 1);
   const totalFiles = pipelines.reduce((acc, p) => acc + p.files_changed, 0);
   const totalTests = pipelines.reduce((acc, p) => acc + p.tests_passed, 0);

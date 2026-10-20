@@ -17,7 +17,7 @@ Always respond in valid JSON format."""
         code_changes = context.get("code_changes", [])
 
         changes_desc = "\n\n".join([
-            f"### {c.file_path}\n```{c.language or ''}\n{c.new_content[:2000]}\n```"
+            f"### {c.file_path}\n```{c.language or ''}\n{c.new_content}\n```"
             for c in code_changes
         ])
 
@@ -62,19 +62,19 @@ Respond with JSON:
         ]) if findings else "- ✅ No security issues detected"
 
         message = self.create_message(
-            content=f"**Security Scan Complete** {'✅' if result.get('safe', True) else '⚠️'}\n\n"
+            content=f"**Security Scan Complete** {'✅' if result.get('safe') is True else '⚠️'}\n\n"
                     f"**Findings:** {len(findings)}\n\n"
                     f"{findings_desc}\n\n"
                     f"**Summary:** {result.get('summary', 'N/A')}",
             metadata={
                 "findings": [f.model_dump() for f in findings],
-                "safe": result.get("safe", True),
+                "safe": result.get("safe") is True,
             },
             thinking=result.get("summary", ""),
         )
 
         return {
             "security_findings": findings,
-            "security_safe": result.get("safe", True),
+            "security_safe": result.get("safe") is True,
             "message": message,
         }

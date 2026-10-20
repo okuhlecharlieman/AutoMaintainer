@@ -32,7 +32,7 @@ class MemoryService:
             rows = result.scalars().all()
             for row in rows:
                 entry = orm_to_memory(row)
-                self._add_entry(entry.repo_url, entry)
+                self._store.setdefault(self._repo_key(entry.repo_url), []).append(entry)
             self._loaded = True
             logger.info("Loaded %d memories from database", len(rows))
 

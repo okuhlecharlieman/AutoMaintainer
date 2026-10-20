@@ -64,6 +64,7 @@ class PipelineStatus(str, Enum):
     AWAITING_APPROVAL = "awaiting_approval"
     APPROVED = "approved"
     REJECTED = "rejected"
+    PR_CREATED = "pr_created"
     MERGED = "merged"
     FAILED = "failed"
 
@@ -100,6 +101,7 @@ class CodeChange(BaseModel):
 class TestResult(BaseModel):
     test_name: str
     passed: bool
+    executed: bool = False
     output: str
     duration_ms: Optional[float] = None
     error_message: Optional[str] = None
@@ -125,6 +127,9 @@ class ReviewScore(BaseModel):
 
 
 class PipelineRun(BaseModel):
+    owner: Optional[str] = None
+    base_branch: Optional[str] = None
+    base_sha: Optional[str] = None
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     repo_url: str
     issue_url: str

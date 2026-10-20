@@ -78,7 +78,7 @@ export default function ApprovalGateway({ pipeline, onAction }: Props) {
                 <p className="text-xs text-am-muted">Tests Passed</p>
               </div>
               <p className="text-white font-bold text-lg">
-                {pipeline.test_results.filter(t => t.passed).length}/{pipeline.test_results.length}
+                {pipeline.test_results.filter(t => t.executed && t.passed).length}/{pipeline.test_results.length}
               </p>
             </div>
             <div className="bg-am-dark/50 rounded-lg p-3">

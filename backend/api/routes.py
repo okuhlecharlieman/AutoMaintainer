@@ -24,13 +24,37 @@ from services.orchestrator import orchestration_engine
 logger = logging.getLogger(__name__)
 
 # Auth-protected router (all routes except those using public_endpoint)
-router = APIRouter(dependencies=[Depends(require_api_key)])
+def _is_admin(auth_info: dict) -> bool:
+    return auth_info.get("user") in (get_settings().admin_username, "api_client")
+
+
+def _visible(pipeline, auth_info: dict) -> bool:
+    return _is_admin(auth_info) or (pipeline.owner is not None and pipeline.owner == auth_info.get("user"))
+
+
+async def enforce_access(request: Request, auth_info: dict = Depends(require_api_key)):
+    pipeline_id = request.path_params.get("pipeline_id")
+    if pipeline_id:
+        pipeline = orchestration_engine.get_pipeline(pipeline_id)
+        if not pipeline or not _visible(pipeline, auth_info):
+            raise HTTPException(status_code=404, detail="Pipeline not found")
+    if (request.url.path.startswith("/api/admin/")
+            or request.method in {"PUT", "POST", "DELETE"} and request.url.path.startswith("/api/system/")):
+        if not _is_admin(auth_info):
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def _memory_key(repo_url: str, auth_info: dict) -> str:
+    return f"{repo_url.rstrip('/')}#owner={auth_info['user']}"
+
+
+router = APIRouter(dependencies=[Depends(enforce_access)])
 
 
 async def _resolve_user_token(auth_info: dict) -> Optional[str]:
     """Look up the authenticated user's GitHub OAuth token from the database."""
     username = auth_info.get("user")
-    if username in ("anonymous", "api_client", None):
+    if username in ("anonymous", "api_client", get_settings().admin_username, None):
         return None
 
     async with async_session() as session:
@@ -39,6 +63,8 @@ async def _resolve_user_token(auth_info: dict) -> Optional[str]:
         )
         user_token = result.scalar_one_or_none()
 
+    if not user_token:
+        raise HTTPException(status_code=401, detail="Reconnect GitHub before starting or approving a pipeline")
     return user_token
 
 
@@ -134,6 +160,7 @@ async def start_pipeline(request: StartPipelineRequest, auth_info: dict = Depend
             issue_body=request.issue_body,
             custom_instructions=request.custom_instructions,
             github_token=github_token,
+            owner=auth_info["user"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -153,6 +180,7 @@ async def start_demo_pipeline(request: DemoPipelineRequest, auth_info: dict = De
             issue_body=request.issue_body,
             custom_instructions="",
             github_token=github_token,
+            owner=auth_info["user"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -161,12 +189,13 @@ async def start_demo_pipeline(request: DemoPipelineRequest, auth_info: dict = De
 
 @router.get("/pipelines")
 async def list_pipelines(
-    status: Optional[str] = Query(default=None, pattern="^(pending|analyzing|planning|developing|testing|security_scan|reviewing|documenting|awaiting_approval|approved|rejected|merged|failed)$"),
+    status: Optional[str] = Query(default=None, pattern="^(pending|analyzing|planning|developing|testing|security_scan|reviewing|documenting|awaiting_approval|approved|rejected|pr_created|merged|failed)$"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    auth_info: dict = Depends(require_api_key),
 ):
     """List pipelines with optional status filter and pagination."""
-    pipelines = orchestration_engine.list_pipelines(status=status, limit=limit, offset=offset)
+    pipelines = orchestration_engine.list_pipelines(status=status, limit=limit, offset=offset, owner=None if _is_admin(auth_info) else auth_info["user"])
     return {
         "pipelines": [
             {
@@ -178,7 +207,7 @@ async def list_pipelines(
                 "pr_url": p.pr_url,
                 "review_score": p.review_score.overall if p.review_score else None,
                 "files_changed": len(p.code_changes),
-                "tests_passed": sum(1 for t in p.test_results if t.passed),
+                "tests_passed": sum(1 for t in p.test_results if t.executed and t.passed),
                 "tests_total": len(p.test_results),
                 "created_at": p.created_at.isoformat(),
                 "updated_at": p.updated_at.isoformat(),
@@ -252,6 +281,7 @@ async def retry_pipeline(pipeline_id: str, body: Optional[RetryPipelineRequest] 
             issue_body=pipeline.issue_body,
             custom_instructions=instructions,
             github_token=github_token,
+            owner=auth_info["user"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -318,10 +348,10 @@ async def get_pipeline_messages(pipeline_id: str):
 # ── Memory endpoints ────────────────────────────────────────────────────────
 
 @router.get("/memory/{repo_url:path}")
-async def get_repo_memory(repo_url: str):
+async def get_repo_memory(repo_url: str, auth_info: dict = Depends(require_api_key)):
     """Get learned memory for a repository."""
     resolved = f"https://github.com/{repo_url}" if not repo_url.startswith("http") else repo_url
-    memory = memory_service.get_repo_memory(resolved)
+    memory = memory_service.get_repo_memory(_memory_key(resolved, auth_info))
     return {
         "repo_url": resolved,
         "memory": {
@@ -332,9 +362,9 @@ async def get_repo_memory(repo_url: str):
 
 
 @router.post("/memory", status_code=201)
-async def add_memory(request: MemoryRequest):
+async def add_memory(request: MemoryRequest, auth_info: dict = Depends(require_api_key)):
     """Manually add a memory entry for a repository."""
-    entry = await memory_service.add_manual(request.repo_url, request.category, request.content)
+    entry = await memory_service.add_manual(_memory_key(request.repo_url, auth_info), request.category, request.content)
     return entry.model_dump()
 
 
@@ -362,12 +392,12 @@ async def list_user_repos(auth_info: dict = Depends(require_api_key)):
 # ── System status ───────────────────────────────────────────────────────────
 
 @router.get("/system/status")
-async def system_status():
+async def system_status(auth_info: dict = Depends(require_api_key)):
     """Get system status including backend config, LLM models, and pipeline stats."""
     from core.config import get_settings
     settings = get_settings()
-    pipelines = orchestration_engine.list_pipelines(limit=1000)
-    active = sum(1 for p in pipelines if p.status.value not in ("merged", "rejected", "failed"))
+    pipelines = orchestration_engine.list_pipelines(limit=1000, owner=None if _is_admin(auth_info) else auth_info["user"])
+    active = sum(1 for p in pipelines if p.status.value not in ("pr_created", "merged", "rejected", "failed"))
 
     return {
         "backend": {
@@ -526,9 +556,9 @@ async def admin_stats(auth_info: dict = Depends(require_api_key)):
 
     pipelines = orchestration_engine.list_pipelines(limit=10000)
     total_pipelines = len(pipelines)
-    successful = sum(1 for p in pipelines if p.status == PipelineStatus.MERGED)
+    successful = sum(1 for p in pipelines if p.status == PipelineStatus.PR_CREATED)
     failed = sum(1 for p in pipelines if p.status == PipelineStatus.FAILED)
-    active = sum(1 for p in pipelines if p.status.value not in ("merged", "rejected", "failed"))
+    active = sum(1 for p in pipelines if p.status.value not in ("pr_created", "merged", "rejected", "failed"))
 
     # Unique repos
     unique_repos = len({p.repo_url for p in pipelines})

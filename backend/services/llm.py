@@ -1,4 +1,4 @@
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, APIConnectionError
 from typing import List, Dict, Any, Optional
 from core.config import get_settings, ModelConfig
 import asyncio
@@ -24,6 +24,17 @@ class RateLimitExhausted(Exception):
         super().__init__(f"Rate limit exhausted on {model} after retries: {original_error}")
 
 
+class ModelUnavailable(Exception):
+    """A provider cannot serve this model; safe to try a configured alternative."""
+
+    def __init__(self, model: str, status: Optional[int] = None):
+        detail = f"HTTP {status}" if status else "connection failure"
+        super().__init__(
+            f"Model '{model}' is unavailable at its provider ({detail}). "
+            "Choose another configured model in Settings, save, and retry."
+        )
+
+
 class LLMClient:
     """Client for a single LLM provider/model combination."""
 
@@ -32,6 +43,7 @@ class LLMClient:
         self.client = AsyncOpenAI(
             api_key=config.api_key,
             base_url=config.base_url,
+            max_retries=0,  # This layer owns retries and fallback budgets.
         )
         self.model = config.model
 
@@ -66,8 +78,10 @@ class LLMClient:
                 logger.error("LLM call to %s timed out after %ds", self.model, timeout)
                 raise TimeoutError(f"LLM call to {self.model} timed out after {timeout}s")
             except Exception as e:
-                error_str = str(e)
-                is_rate_limit = "429" in error_str or "rate" in error_str.lower()
+                status = getattr(e, "status_code", None)
+                if status in {404, 408, 500, 502, 503, 504} or isinstance(e, APIConnectionError):
+                    raise ModelUnavailable(self.model, status) from e
+                is_rate_limit = status == 429
                 if is_rate_limit:
                     last_error = e
                     if attempt < RATE_LIMIT_RETRIES:
@@ -227,8 +241,10 @@ class FallbackLLMClient(LLMClient):
     """Wraps a primary LLMClient with automatic fallback to other models on rate limits."""
 
     def __init__(self, primary: LLMClient, fallbacks: List[LLMClient]):
-        # Initialize with primary's config
-        super().__init__(primary.config)
+        # Reuse the primary transport; resolving settings must not allocate clients.
+        self.config = primary.config
+        self.client = primary.client
+        self.model = primary.model
         self._primary = primary
         self._fallbacks = fallbacks
 
@@ -242,13 +258,17 @@ class FallbackLLMClient(LLMClient):
     ) -> str:
         try:
             return await self._primary.chat(messages, temperature, max_tokens, response_format, call_timeout)
-        except (RateLimitExhausted, TimeoutError) as e:
+        except (RateLimitExhausted, TimeoutError, ModelUnavailable) as e:
             is_timeout = isinstance(e, TimeoutError)
-            reason = "timed out" if is_timeout else "exhausted rate limits"
+            reason = "timed out" if is_timeout else ("is unavailable at its provider" if isinstance(e, ModelUnavailable) else "exhausted rate limits")
             logger.warning("Model %s %s, trying fallbacks...", self._primary.model, reason)
             # Use shorter timeout for fallback models — they should be smaller/faster
             fallback_timeout = LLM_CALL_TIMEOUT_FALLBACK
-            for fb in self._fallbacks:
+            candidates = [
+                fb for fb in self._fallbacks
+                if not self._primary.model.endswith(":free") or fb.model.endswith(":free")
+            ]
+            for fb in candidates:
                 try:
                     logger.info("Falling back to %s (timeout=%ds)", fb.model, fallback_timeout)
                     return await fb.chat(messages, temperature, max_tokens, response_format, fallback_timeout)
@@ -258,14 +278,15 @@ class FallbackLLMClient(LLMClient):
                 except TimeoutError:
                     logger.warning("Fallback %s also timed out, trying next...", fb.model)
                     continue
-                except Exception as fb_err:
-                    logger.warning("Fallback %s failed: %s", fb.model, fb_err)
+                except ModelUnavailable:
+                    logger.warning("Fallback %s is unavailable, trying next...", fb.model)
                     continue
             # All fallbacks exhausted
             raise RuntimeError(
                 f"All models failed ({reason}). Primary: {self._primary.model}. "
-                f"Tried {len(self._fallbacks)} fallback(s). "
-                f"Please wait a few minutes and retry."
+                f"Tried {len(candidates)} eligible configured fallback(s). "
+                "Choose another available model in Settings, save, and retry. "
+                "Free primary models only fall back to configured :free models."
             ) from e
 
 
@@ -296,6 +317,8 @@ class LLMRegistry:
             self._clients[alias]
             for alias in self._fallback_order
             if alias != exclude_alias and alias in self._clients
+            and (not self._clients[exclude_alias].model.endswith(":free")
+                 or self._clients[alias].model.endswith(":free"))
         ]
 
     def get_client(self, alias: Optional[str] = None) -> LLMClient:
@@ -319,38 +342,25 @@ class LLMRegistry:
 
         primary = self._clients[primary_alias]
         fallbacks = self._get_fallbacks(primary_alias)
-        if fallbacks:
-            return FallbackLLMClient(primary, fallbacks)
-        return primary
+        return FallbackLLMClient(primary, fallbacks)
 
     def get_client_for_agent(self, agent_role: str, preferred_model: Optional[str] = None) -> LLMClient:
         """Resolve the best client for a given agent, with fallback on rate limits."""
         settings = get_settings()
 
-        # Determine primary alias — check runtime overrides first
-        primary_alias = None
-        if preferred_model and preferred_model in self._clients:
-            primary_alias = preferred_model
-        else:
-            if preferred_model:
-                logger.warning(f"Preferred model '{preferred_model}' for {agent_role} not found")
-            # Runtime overrides take priority over env vars
-            runtime_alias = self._runtime_agent_models.get(agent_role)
-            if runtime_alias and runtime_alias in self._clients:
-                primary_alias = runtime_alias
-            else:
-                agent_alias = settings.get_agent_model(agent_role)
-                if agent_alias in self._clients:
-                    primary_alias = agent_alias
+        # A saved choice must override a subclass's preferred default.
+        primary_alias = self._runtime_agent_models.get(agent_role)
+        if primary_alias not in self._clients:
+            primary_alias = preferred_model if preferred_model in self._clients else settings.get_agent_model(agent_role)
+        if primary_alias not in self._clients:
+            primary_alias = None
 
         if not primary_alias:
             return self.get_client()
 
         primary = self._clients[primary_alias]
         fallbacks = self._get_fallbacks(primary_alias)
-        if fallbacks:
-            return FallbackLLMClient(primary, fallbacks)
-        return primary
+        return FallbackLLMClient(primary, fallbacks)
 
     def get_agent_models(self) -> Dict[str, str]:
         """Get effective agent-model assignments (runtime overrides + env defaults)."""
